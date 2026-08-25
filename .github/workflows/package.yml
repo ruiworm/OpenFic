@@ -228,7 +228,7 @@ jobs:
 
   # ---------------------------------------------------------------- desktop
   desktop:
-    needs: [context, build-frontend, pypi]
+    needs: [context, build-frontend]
     strategy:
       fail-fast: false
       matrix:
@@ -387,8 +387,8 @@ jobs:
 
   # ---------------------------------------------------------------- release
   publish-release:
-    needs: [context, desktop, desktop-windows-update]
-    if: ${{ always() && needs.desktop.result == 'success' && needs.desktop-windows-update.result == 'success' }}
+    needs: [context, desktop]
+    if: ${{ always() && needs.desktop.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
