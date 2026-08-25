@@ -1,0 +1,104 @@
+export interface ScrollFrameMetrics {
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+export interface ScrollViewportMetrics extends ScrollFrameMetrics {
+  scrollTop: number;
+}
+
+interface StreamingFollowMessage {
+  id: string;
+  status?: string;
+  content?: string;
+  toolArgsText?: string;
+  partialToolArgs?: Record<string, unknown>;
+  toolResult?: Record<string, unknown>;
+  isStreaming?: boolean;
+}
+
+export function getStreamingFollowSignal(messages: readonly StreamingFollowMessage[]): string {
+  return messages.reduce((signal, message) => {
+    if (!message.isStreaming && message.status !== "running") return signal;
+    return `${signal}${message.id}\u0000${message.status ?? ""}\u0000${message.content?.length ?? 0}\u0000${message.toolArgsText?.length ?? 0}\u0000${JSON.stringify(message.partialToolArgs ?? null)}\u0000${JSON.stringify(message.toolResult ?? null)}\u0000${message.isStreaming ? 1 : 0}\u0001`;
+  }, "");
+}
+
+const FOLLOW_BOTTOM_THRESHOLD_PX = 80;
+
+export function getDistanceFromBottom({
+  scrollHeight,
+  scrollTop,
+  clientHeight,
+}: ScrollViewportMetrics): number {
+  return Math.max(0, scrollHeight - scrollTop - clientHeight);
+}
+
+export function shouldFollowBottom(metrics: ScrollViewportMetrics): boolean {
+  return getDistanceFromBottom(metrics) < FOLLOW_BOTTOM_THRESHOLD_PX;
+}
+
+export function shouldTrackStreamingFollowBottom(isRunning: boolean): boolean {
+  return isRunning;
+}
+
+export function shouldResetFollowBottomForRun(
+  previousIsRunning: boolean,
+  nextIsRunning: boolean,
+): boolean {
+  return !previousIsRunning && nextIsRunning;
+}
+
+export function resolveFollowBottomStateOnScroll({
+  previous,
+  next,
+  wasFollowingBottom,
+  isAutoScrollPending = false,
+}: {
+  previous: ScrollViewportMetrics | null;
+  next: ScrollViewportMetrics;
+  wasFollowingBottom: boolean;
+  isAutoScrollPending?: boolean;
+}): boolean {
+  const isAtBottomNow = shouldFollowBottom(next);
+  if (!previous) return isAtBottomNow;
+  if (!wasFollowingBottom) return isAtBottomNow;
+  if (isAutoScrollPending) return true;
+
+  const frameChanged =
+    previous.scrollHeight !== next.scrollHeight || previous.clientHeight !== next.clientHeight;
+
+  if (!frameChanged) return isAtBottomNow;
+  return true;
+}
+
+export function hasPendingLoadedSessionBottomRestore(
+  pendingRestoreKey: string | null | undefined,
+  currentScrollKey: string | null | undefined,
+): boolean {
+  return Boolean(pendingRestoreKey && currentScrollKey && pendingRestoreKey === currentScrollKey);
+}
+
+export function shouldScheduleLoadedSessionBottomRestoreImmediately(
+  hasPendingRestore: boolean,
+  hasBoundScrollContainer: boolean,
+): boolean {
+  return hasPendingRestore && hasBoundScrollContainer;
+}
+
+export function shouldAutoScrollOnFrameChange(
+  previous: ScrollFrameMetrics | null,
+  next: ScrollFrameMetrics,
+  isFollowingBottom: boolean,
+): boolean {
+  if (!isFollowingBottom) return false;
+  if (!previous) return true;
+  return previous.scrollHeight !== next.scrollHeight || previous.clientHeight !== next.clientHeight;
+}
+
+export function shouldResetFollowBottomForLoad(
+  previousKey: string | null | undefined,
+  nextKey: string | null | undefined,
+): boolean {
+  return Boolean(nextKey && previousKey !== nextKey);
+}

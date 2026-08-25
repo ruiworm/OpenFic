@@ -1,0 +1,87 @@
+import {
+  BookOpen,
+  FileText,
+  Folder,
+  Quote,
+  ScrollText,
+  NotebookText,
+  Package,
+  UserRound,
+} from "lucide-react";
+import type { ReactNode } from "react";
+
+import type { AssistantCommandKind } from "@/features/assistant/lib/command-text";
+import type { AssistantMentionKind } from "@/features/assistant/lib/mention-text";
+
+import "./agent-mentions.css";
+
+function getMentionIcon(kind: AssistantMentionKind | AssistantCommandKind): ReactNode {
+  if (kind === "skill") return <Package size={14} />;
+  if (kind === "volume") return <BookOpen size={14} />;
+  if (kind === "chapter") return <FileText size={14} />;
+  if (kind === "note") return <NotebookText size={14} />;
+  if (kind === "note_category") return <Folder size={14} />;
+  if (kind === "world_info_entry") return <ScrollText size={14} />;
+  if (kind === "character") return <UserRound size={14} />;
+  return <Quote size={14} />;
+}
+
+export function MentionChip({
+  kind,
+  label,
+  selected = false,
+  onClick,
+}: {
+  kind: AssistantMentionKind | AssistantCommandKind;
+  label: string;
+  selected?: boolean;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <span
+        className="agent-mention-chip-icon"
+        aria-hidden="true"
+      >
+        {getMentionIcon(kind)}
+      </span>
+      <span className="agent-mention-chip-label">{label}</span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="agent-mention-chip"
+        data-kind={kind}
+        data-selected={selected}
+        data-clickable="true"
+        draggable={false}
+        onDragStart={(event) => {
+          event.preventDefault();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick();
+        }}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span
+      className="agent-mention-chip"
+      data-kind={kind}
+      data-selected={selected}
+      draggable={false}
+      onDragStart={(event) => {
+        event.preventDefault();
+      }}
+    >
+      {content}
+    </span>
+  );
+}

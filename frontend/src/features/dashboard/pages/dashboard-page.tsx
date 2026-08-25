@@ -1,0 +1,243 @@
+import { Box } from "@radix-ui/themes";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { BarChart3, BookOpenText, ListTree } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { MobileAppSidebarTrigger } from "@/features/app-shell";
+
+import { DashboardFilters } from "../components/dashboard-filters";
+import { DashboardRecordsTab } from "../components/dashboard-records-tab";
+import { LlmDashboardTab } from "../components/llm-dashboard-tab";
+import { WritingDashboardTab } from "../components/writing-dashboard-tab";
+import {
+  fetchLlmDashboardRecords,
+  fetchLlmDashboardStats,
+  fetchWritingDashboard,
+} from "../lib/dashboard-api";
+import { getDefaultDashboardDateRange } from "../lib/dashboard-date-range";
+import { toIsoDateTime } from "../lib/dashboard-formatters";
+import type { DashboardQueryParams, WritingDashboardQueryParams } from "../lib/dashboard.types";
+
+import "./dashboard-page.css";
+
+type DashboardTab = "writing" | "llm" | "records";
+
+const defaultLlmQuery: DashboardQueryParams = {
+  page: 1,
+  pageSize: 20,
+  sortBy: "created_at",
+  sortOrder: "desc",
+};
+
+function getCurrentYear(): number {
+  return new Date().getFullYear();
+}
+
+function getYearStart(year: number): string {
+  return `${year}-01-01`;
+}
+
+function getYearEnd(year: number): string {
+  return `${year}-12-31`;
+}
+
+function getUserTimezone(): string | undefined {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export function DashboardPage() {
+  const { t } = useTranslation();
+  const defaultDateRange = useMemo(() => getDefaultDashboardDateRange(), []);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("writing");
+  const [llmQuery, setLlmQuery] = useState<DashboardQueryParams>(defaultLlmQuery);
+  const [searchInput, setSearchInput] = useState("");
+  const [startDate, setStartDate] = useState(defaultDateRange.startDate);
+  const [endDate, setEndDate] = useState(defaultDateRange.endDate);
+  const [writingYear, setWritingYear] = useState(getCurrentYear);
+  const isWritingTab = activeTab === "writing";
+  const isLlmTab = activeTab === "llm";
+  const isRecordsTab = activeTab === "records";
+  const tabs: Array<{ value: DashboardTab; label: string; icon: typeof BookOpenText }> = [
+    { value: "writing", label: t("dashboard.tabs.writing"), icon: BookOpenText },
+    { value: "llm", label: t("dashboard.tabs.llm"), icon: BarChart3 },
+    { value: "records", label: t("dashboard.tabs.records"), icon: ListTree },
+  ];
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextSearch = searchInput || undefined;
+      setLlmQuery((current) => {
+        if (current.search === nextSearch) return current;
+        return { ...current, search: nextSearch, page: 1 };
+      });
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  const startAt = toIsoDateTime(startDate, "start");
+  const endAt = toIsoDateTime(endDate, "end");
+  const userTimezone = getUserTimezone();
+
+  const llmDashboardQuery = useMemo(
+    () => ({ ...llmQuery, startAt, endAt }),
+    [endAt, llmQuery, startAt],
+  );
+
+  const writingHeroQuery = useMemo<WritingDashboardQueryParams>(
+    () => ({
+      startAt: toIsoDateTime(getYearStart(writingYear), "start"),
+      endAt: toIsoDateTime(getYearEnd(writingYear), "end"),
+      timezone: userTimezone,
+    }),
+    [userTimezone, writingYear],
+  );
+
+  const writingYearsQuery = useMemo<WritingDashboardQueryParams>(
+    () => ({ timezone: userTimezone }),
+    [userTimezone],
+  );
+
+  const writingDetailQuery = useMemo<WritingDashboardQueryParams>(
+    () => ({ projectId: llmQuery.projectId, startAt, endAt, timezone: userTimezone }),
+    [endAt, llmQuery.projectId, startAt, userTimezone],
+  );
+
+  const { data: llmStatsData, isFetching: isLlmStatsFetching } = useQuery({
+    queryKey: ["dashboard", "llm-api", "stats", llmDashboardQuery],
+    queryFn: () => fetchLlmDashboardStats(llmDashboardQuery),
+    enabled: isLlmTab,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: llmRecordsData, isFetching: isLlmRecordsFetching } = useQuery({
+    queryKey: ["dashboard", "llm-api", "records", llmDashboardQuery],
+    queryFn: () => fetchLlmDashboardRecords(llmDashboardQuery),
+    enabled: isRecordsTab,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: writingHeroData } = useQuery({
+    queryKey: ["dashboard", "writing", "hero", writingHeroQuery],
+    queryFn: () => fetchWritingDashboard(writingHeroQuery),
+    enabled: isWritingTab,
+  });
+
+  const { data: writingYearsData } = useQuery({
+    queryKey: ["dashboard", "writing", "years", writingYearsQuery],
+    queryFn: () => fetchWritingDashboard(writingYearsQuery),
+    enabled: isWritingTab,
+  });
+
+  const { data: writingDetailData, isFetching: isWritingDetailFetching } = useQuery({
+    queryKey: ["dashboard", "writing", "detail", writingDetailQuery],
+    queryFn: () => fetchWritingDashboard(writingDetailQuery),
+    enabled: isWritingTab,
+  });
+
+  const llmOptions = isRecordsTab ? llmRecordsData?.options : llmStatsData?.options;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((llmRecordsData?.records.total ?? 0) / llmQuery.pageSize),
+  );
+
+  const updateLlmQuery = (updates: Partial<DashboardQueryParams>) => {
+    setLlmQuery((current) => ({ ...current, ...updates, page: updates.page ?? 1 }));
+  };
+
+  const resetFilters = () => {
+    setSearchInput("");
+    setStartDate(defaultDateRange.startDate);
+    setEndDate(defaultDateRange.endDate);
+    setWritingYear(getCurrentYear());
+    setLlmQuery(defaultLlmQuery);
+  };
+
+  const filters = (
+    <DashboardFilters
+      activeTab={activeTab}
+      query={llmQuery}
+      options={llmOptions}
+      searchInput={searchInput}
+      startDate={startDate}
+      endDate={endDate}
+      updateQuery={updateLlmQuery}
+      setSearchInput={setSearchInput}
+      setStartDate={setStartDate}
+      setEndDate={setEndDate}
+      resetFilters={resetFilters}
+    />
+  );
+
+  return (
+    <Box className="dashboard-page">
+      <div className="dashboard-shell">
+        <header className="dashboard-header">
+          <div className="dashboard-title-block dashboard-title-row">
+            <MobileAppSidebarTrigger />
+            <h1 className="dashboard-title">{t("dashboard.title")}</h1>
+          </div>
+        </header>
+
+        <nav
+          className="dashboard-tab-nav"
+          role="tablist"
+          aria-label={t("dashboard.navLabel")}
+        >
+          {tabs.map((tab) => {
+            const TabIcon = tab.icon;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                className="dashboard-tab-button"
+                data-active={activeTab === tab.value}
+                role="tab"
+                aria-selected={activeTab === tab.value}
+                onClick={() => setActiveTab(tab.value)}
+              >
+                <TabIcon
+                  size={16}
+                  className="dashboard-tab-icon"
+                  aria-hidden="true"
+                />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {isWritingTab ? (
+          <WritingDashboardTab
+            heroData={writingHeroData}
+            yearsData={writingYearsData}
+            detailData={writingDetailData}
+            isDetailLoading={isWritingDetailFetching}
+            selectedYear={writingYear}
+            onSelectedYearChange={setWritingYear}
+            filtersSlot={filters}
+          />
+        ) : null}
+        {isLlmTab ? (
+          <LlmDashboardTab
+            data={llmStatsData}
+            isLoading={isLlmStatsFetching}
+          />
+        ) : null}
+        {isRecordsTab ? (
+          <>
+            {filters}
+            <DashboardRecordsTab
+              data={llmRecordsData}
+              query={llmQuery}
+              totalPages={totalPages}
+              isLoading={isLlmRecordsFetching}
+              updateQuery={updateLlmQuery}
+            />
+          </>
+        ) : null}
+      </div>
+    </Box>
+  );
+}

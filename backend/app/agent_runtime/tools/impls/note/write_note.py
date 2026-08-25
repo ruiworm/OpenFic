@@ -1,0 +1,203 @@
+# -*- coding: utf-8 -*-
+"""
+创建新笔记。
+"""
+
+import json
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from app.agent_runtime.tools.base import AgentTool
+from app.core.editor_content_limits import EditorContentLimitError, validate_editor_content
+from app.agent_runtime.revisions import (
+    current_revision_id_from_state,
+    note_images_by_id,
+    record_note_diffs,
+)
+from app.agent_runtime.tools.errors import ToolExecutionError
+from app.agent_runtime.tools.impls.note.refs import (
+    CategoryRef,
+    generate_unique_title,
+    resolve_category_from_list,
+)
+from app.agent_runtime.tools.impls._locks import keyed_lock
+from app.agent_runtime.tools.registry import ToolRegistry
+from app.storage.database import create_session
+from app.storage.models.note import Note
+from app.storage.repos import note_category_repo, note_repo
+
+
+class WriteNoteInput(BaseModel):
+    title: str = Field(description="笔记标题")
+    content: str = Field(description="笔记内容")
+    category_ref: dict | None = Field(default=None, description="可选的目标分类引用")
+
+
+@ToolRegistry.register
+class WriteNoteTool(AgentTool):
+    name: str = "write_note"
+    description: str = "在指定分类（可省略）下创建新笔记，该工具无法覆盖式创建，当创建同名笔记时，会添加不重复序号的新笔记"
+    access_level: str = "write"
+    args_schema: type[BaseModel] = WriteNoteInput
+
+    async def build_interrupt_preview(self, args: dict[str, Any]) -> dict | None:
+        session = self.get_runtime_db_session()
+        title = args.get("title")
+        content = args.get("content")
+        if session is None or not isinstance(title, str) or not isinstance(content, str):
+            return None
+        try:
+            validate_editor_content(content)
+        except EditorContentLimitError:
+            return None
+
+        category_id: str | None = None
+        category_ref = args.get("category_ref")
+        if category_ref is not None:
+            if not isinstance(category_ref, dict):
+                return None
+            ref = CategoryRef.model_validate(category_ref)
+            if ref.id is not None:
+                category = await note_category_repo.get_by_id(session, ref.id)
+                if category is None or category.project_id != self.project_id:
+                    return None
+            else:
+                categories = await note_category_repo.list_by_project(session, self.project_id)
+                try:
+                    category = resolve_category_from_list(categories, ref)
+                except ToolExecutionError:
+                    return None
+            category_id = category.id
+
+        notes = await note_repo.list_by_project(session, self.project_id, include_hidden=False)
+        unique_title = generate_unique_title(
+            title,
+            {note.title for note in notes if note.category_id == category_id},
+        )
+        diff_lines = [
+            {
+                "type": "added",
+                "before_line_number": None,
+                "after_line_number": line_number,
+                "text": line,
+            }
+            for line_number, line in enumerate(content.splitlines(), start=1)
+        ]
+        return {
+            "type": "preview",
+            "success": True,
+            "reason": "approval_preview",
+            "message": "笔记创建待审批",
+            "metadata": {
+                "note_diff": {
+                    "operation": "create",
+                    "note_title": unique_title,
+                    "category_id": category_id,
+                    "sections": [{"type": "content", "lines": diff_lines}],
+                }
+            },
+        }
+
+    async def _execute(
+        self,
+        title: str,
+        content: str,
+        category_ref: dict | None = None,
+    ) -> str:
+        revision_id = current_revision_id_from_state(self._state)
+        if revision_id is None:
+            raise ToolExecutionError("缺少当前 revision，无法执行笔记写入")
+        try:
+            validate_editor_content(content)
+        except EditorContentLimitError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        session = await create_session()
+        try:
+            category_id: str | None = None
+            if category_ref is not None:
+                ref = CategoryRef.model_validate(category_ref)
+                if ref.id is not None:
+                    cat = await note_category_repo.get_by_id(session, ref.id)
+                    if cat is None:
+                        raise ToolExecutionError(f"分类不存在: {ref.id}")
+                else:
+                    cats = await note_category_repo.list_by_project(
+                        session, self.project_id
+                    )
+                    cat = resolve_category_from_list(cats, ref)
+                if cat.project_id != self.project_id:
+                    raise ToolExecutionError("目标分类不属于当前项目")
+                category_id = cat.id
+
+            async with await keyed_lock((self.project_id, category_id)):
+                notes = await note_repo.list_by_project(
+                    session, self.project_id, include_hidden=False
+                )
+                sibling_titles = {
+                    n.title for n in notes if n.category_id == category_id
+                }
+                unique_title = generate_unique_title(title, sibling_titles)
+
+                before = note_images_by_id(
+                    await note_repo.list_by_project(
+                        session, self.project_id, include_hidden=True
+                    )
+                )
+                note = Note(
+                    project_id=self.project_id,
+                    category_id=category_id,
+                    title=unique_title,
+                    content=content,
+                    is_locked=False,
+                    is_hidden=False,
+                )
+                note = await note_repo.create(session, note)
+                after = note_images_by_id(
+                    await note_repo.list_by_project(
+                        session, self.project_id, include_hidden=True
+                    )
+                )
+                await record_note_diffs(
+                    session,
+                    revision_id=revision_id,
+                    project_id=self.project_id,
+                    before=before,
+                    after=after,
+                )
+
+                content_lines = content.splitlines()
+                diff_lines = [
+                    {
+                        "type": "added",
+                        "before_line_number": None,
+                        "after_line_number": i + 1,
+                        "text": line,
+                    }
+                    for i, line in enumerate(content_lines)
+                ]
+                note_diff = {
+                    "operation": "create",
+                    "sections": [{"type": "content", "lines": diff_lines}],
+                    "note_id": note.id,
+                    "note_title": note.title,
+                    "category_id": note.category_id,
+                }
+
+                from app.background.jobs import service as background_service
+
+                await background_service.commit_and_notify(session)
+                return json.dumps(
+                    {
+                        "success": True,
+                        "metadata": {"note_diff": note_diff},
+                    },
+                    ensure_ascii=False,
+                )
+        except ToolExecutionError:
+            raise
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

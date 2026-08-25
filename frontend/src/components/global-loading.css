@@ -1,0 +1,64 @@
+.global-loading-shell {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100dvh;
+  z-index: 9999;
+  background:
+    radial-gradient(circle at center, var(--gray-a3) 0, transparent 26%),
+    linear-gradient(
+      180deg,
+      var(--color-background),
+      color-mix(in oklab, var(--color-background) 92%, var(--gray-3))
+    );
+}
+
+.global-loading-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.global-loading-stage[data-error="true"] {
+  gap: 16px;
+}
+
+.rt-Box.global-loading-spinner-shell {
+  position: relative;
+  display: grid;
+  width: 96px;
+  height: 96px;
+  place-items: center;
+  filter: drop-shadow(0 0 24px var(--gray-a4));
+}
+
+.global-loading-spinner {
+  color: var(--gray-12);
+}
+
+.global-loading-spinner-shell[data-error="true"] .global-loading-spinner {
+  color: var(--red-10);
+}
+
+.global-loading-error {
+  margin: 0;
+  max-width: min(560px, 100%);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.global-loading-retry {
+  position: static;
+  margin: 0 !important;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-background) 78%, var(--gray-a3));
+  backdrop-filter: blur(10px);
+}
+
+.global-loading-retry:hover {
+  background: color-mix(in oklab, var(--color-background) 68%, var(--gray-a4));
+}
