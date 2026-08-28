@@ -56,7 +56,19 @@ export async function getSystemProxyEnvironment(url: string): Promise<NodeJS.Pro
   await configureDefaultSystemProxy();
   const proxyUrl = getProxyUrl(await session.defaultSession.resolveProxy(url));
   const noProxy = withLocalBypass(process.env.NO_PROXY ?? process.env.no_proxy);
-  if (!proxyUrl) return { NO_PROXY: noProxy, no_proxy: noProxy };
+  if (!proxyUrl) {
+    // 直连模式：显式清空代理变量，覆盖主进程残留的代理（如已关闭的 Clash 端口 127.0.0.1:7890）
+    return {
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      ALL_PROXY: "",
+      http_proxy: "",
+      https_proxy: "",
+      all_proxy: "",
+      NO_PROXY: noProxy,
+      no_proxy: noProxy,
+    };
+  }
 
   return {
     HTTP_PROXY: proxyUrl,
