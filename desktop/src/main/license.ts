@@ -4,8 +4,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ============ 可改配置 ============
-const APP_NAME = "OpenFic"; // 改成你二改后的软件名
-const PREFIX = "OPENFIC"; // 激活码前缀，需和 gen_license.py 保持一致
+const APP_NAME = "NovelForge"; // 改成你二改后的软件名
+const PREFIX = "NOVELFORGE"; // 激活码前缀，需和 gen_license.py 保持一致
 // =================================
 
 // 公钥（来自 license_public.pem，只能验签、不能造码，安全）
