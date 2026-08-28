@@ -18,6 +18,7 @@ import { appendLog, setLogsDir } from "./logging.js";
 import { captureException, captureExceptionImmediate, startErrorTelemetry, syncTelemetryEnabled } from "./telemetry.js";
 import type { InitializeAppResult } from "../shared/ipc.js";
 import type { DesktopConfig, DesktopInstance } from "../shared/config.js";
+import { checkLicense } from "./license.js";
 
 function writeStartupLog(message: string): void {
   appendLog("startup", message);
@@ -495,7 +496,13 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     writeStartupLog("app ready");
-    void bootstrap();
+    void checkLicense().then((ok) => {
+      if (!ok) {
+        app.quit();
+        return;
+      }
+      void bootstrap();
+    });
   });
 
   app.on("window-all-closed", () => {
