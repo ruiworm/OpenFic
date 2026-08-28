@@ -376,6 +376,9 @@ jobs:
       - name: 整理 Windows 自动更新产物
         working-directory: desktop
         run: node scripts/prepare-windows-update.mjs
+      - name: 确保 release 存在
+        run: |
+          gh release view "${{ needs.context.outputs.release_tag }}" >/dev/null 2>&1 || gh release create "${{ needs.context.outputs.release_tag }}" --title "${{ needs.context.outputs.release_tag }}" --notes "NovelForge"
       - name: 发布 Windows 自动更新产物
         run: |
           gh release upload "${{ needs.context.outputs.release_tag }}" \
@@ -394,6 +397,11 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
+          merge-multiple: true
+          path: assets
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: windows-update-*
           merge-multiple: true
           path: assets
       - name: 列出产物
