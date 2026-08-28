@@ -379,9 +379,9 @@ jobs:
       - name: 发布 Windows 自动更新产物
         run: |
           gh release upload "${{ needs.context.outputs.release_tag }}" \
-            desktop/dist-electron/OpenFic-*-win-*-setup.exe \
-            desktop/dist-electron/OpenFic-*-win-*-setup.exe.blockmap \
-            desktop/dist-electron/OpenFic-*-win-*.zip \
+            desktop/dist-electron/NovelForge-*-win-*-setup.exe \
+            desktop/dist-electron/NovelForge-*-win-*-setup.exe.blockmap \
+            desktop/dist-electron/NovelForge-*-win-*.zip \
             desktop/dist-electron/latest*.yml \
             --clobber
 

@@ -90,7 +90,7 @@ function canUseAutoUpdater(): boolean {
 
 function configurePortableInstallDirectory(): void {
   const installDirectory = path.dirname(app.getPath("exe"));
-  const uninstallerPath = path.join(installDirectory, "Uninstall OpenFic.exe");
+  const uninstallerPath = path.join(installDirectory, "Uninstall NovelForge.exe");
   if (!existsSync(uninstallerPath) && autoUpdater instanceof NsisUpdater) {
     autoUpdater.installDirectory = installDirectory;
   }

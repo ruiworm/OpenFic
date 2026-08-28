@@ -27,7 +27,7 @@ async function getFileInfo(fileName) {
   };
 }
 
-const universalInstaller = `OpenFic-${version}-win-setup.exe`;
+const universalInstaller = `NovelForge-${version}-win-setup.exe`;
 for (const fileName of [universalInstaller, `${universalInstaller}.blockmap`]) {
   const filePath = path.join(outputDirectory, fileName);
   if (await exists(filePath)) await rm(filePath);
@@ -36,7 +36,7 @@ for (const fileName of [universalInstaller, `${universalInstaller}.blockmap`]) {
 const files = await Promise.all(
   architectures.map(async (architecture) => ({
     architecture,
-    ...(await getFileInfo(`OpenFic-${version}-win-${architecture}-setup.exe`)),
+    ...(await getFileInfo(`NovelForge-${version}-win-${architecture}-setup.exe`)),
   })),
 );
 const releaseDate = new Date().toISOString();
