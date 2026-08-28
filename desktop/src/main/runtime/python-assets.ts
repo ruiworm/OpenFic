@@ -8,7 +8,11 @@ export interface PythonAsset {
 const PYTHON_VERSION = "3.13.14";
 const RELEASE_TAG = "20260623";
 const GITHUB_BASE_URL = `https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}`;
-const MIRROR_PREFIX = "https://gh-proxy.com/";
+// 国内 GitHub 加速镜像（按实测速度排序：ghfast.top 最快，gh-proxy.com 备选，GitHub 直连兜底）
+const MIRROR_PREFIXES = [
+  "https://ghfast.top/",
+  "https://gh-proxy.com/",
+];
 
 function buildGithubUrl(target: string): string {
   const filename = `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${target}-install_only.tar.gz`;
@@ -21,7 +25,10 @@ function buildAsset(target: string): PythonAsset {
     version: PYTHON_VERSION,
     tag: RELEASE_TAG,
     target,
-    urls: [githubUrl, `${MIRROR_PREFIX}${githubUrl}`],
+    urls: [
+      ...MIRROR_PREFIXES.map((prefix) => `${prefix}${githubUrl}`),
+      githubUrl,
+    ],
   };
 }
 

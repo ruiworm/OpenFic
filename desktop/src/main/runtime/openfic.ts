@@ -25,6 +25,8 @@ export type OpenFicRuntimeStep = "create-venv" | "install-uv" | "install-openfic
 const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;]*[A-Za-z]`, "g");
 const DEFAULT_PYPI_INDEX_URL = "https://pypi.org/simple/";
 const TSINGHUA_PYPI_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/";
+const ALIYUN_PYPI_INDEX_URL = "https://mirrors.aliyun.com/pypi/simple/";
+const USTC_PYPI_INDEX_URL = "https://pypi.mirrors.ustc.edu.cn/simple/";
 const PYPI_INDEX_PROBE_TIMEOUT_MS = 5_000;
 const BACKEND_READY_TIMEOUT_MS = 60 * 60_000;
 const PYPI_INDEX_PROBE_PACKAGE = "openfic";
@@ -146,7 +148,7 @@ async function buildPypiEnvironment(indexUrl: string): Promise<NodeJS.ProcessEnv
 async function getPypiEnvironmentsBySpeed(expectedVersion: string): Promise<NodeJS.ProcessEnv[]> {
   await configureDefaultSystemProxy();
   const probes = await Promise.all(
-    [DEFAULT_PYPI_INDEX_URL, TSINGHUA_PYPI_INDEX_URL].map((indexUrl) => probePypiIndex(indexUrl, expectedVersion)),
+    [DEFAULT_PYPI_INDEX_URL, TSINGHUA_PYPI_INDEX_URL, ALIYUN_PYPI_INDEX_URL, USTC_PYPI_INDEX_URL].map((indexUrl) => probePypiIndex(indexUrl, expectedVersion)),
   );
   const orderedUrls = probes
     .filter((probe): probe is PypiIndexProbe => probe !== null)
