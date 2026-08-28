@@ -11,8 +11,7 @@ export function configureSystemProxy(targetSession: Session): Promise<void> {
   if (configured) return configured;
 
   const configuration = targetSession.setProxy({
-    mode: "system",
-    proxyBypassRules: SYSTEM_PROXY_BYPASS_RULES,
+    mode: "direct",
   }).catch((error: unknown) => {
     appendLog("startup", `配置系统代理失败：${error instanceof Error ? error.message : String(error)}`);
   });
