@@ -130,7 +130,9 @@ const ACTIVATION_HTML = `<!DOCTYPE html>
       btn.textContent = "验证中…";
       const res = await ipcRenderer.invoke("license:activate", code);
       if (res && res.ok) {
-        return; // 验证通过，主进程会关闭窗口
+        btn.textContent = "激活成功";
+        btn.disabled = true;
+        return; // 主进程打开主窗口后会关闭此窗口
       }
       btn.disabled = false;
       btn.textContent = "激活";
@@ -149,13 +151,23 @@ const ACTIVATION_HTML = `<!DOCTYPE html>
  * 已激活 -> 直接返回 true（不弹窗）；
  * 未激活 -> 弹出激活窗口，等待用户输入；激活成功返回 true，用户关闭窗口返回 false。
  */
+let activationWin: BrowserWindow | null = null;
+
+/** 主窗口打开后，由 main.ts 调用此函数关闭激活窗口（避免触发 window-all-closed 导致整个应用退出） */
+export function closeActivationWindow(): void {
+  if (activationWin && !activationWin.isDestroyed()) {
+    activationWin.close();
+  }
+  activationWin = null;
+}
+
 export function checkLicense(): Promise<boolean> {
   if (existsSync(licenseFile())) {
     if (isValid(readFileSync(licenseFile(), "utf8"))) return Promise.resolve(true);
   }
 
   return new Promise((resolve) => {
-    let activated = false;
+    let resolved = false;
     const win = new BrowserWindow({
       width: 400,
       height: 500,
@@ -169,20 +181,22 @@ export function checkLicense(): Promise<boolean> {
         nodeIntegration: true,
       },
     });
+    activationWin = win;
     win.setMenuBarVisibility(false);
 
     ipcMain.handleOnce("license:activate", (_e, code: string) => {
       if (isValid(code)) {
         writeFileSync(licenseFile(), code.trim());
-        activated = true;
-        win.close();
+        resolved = true;
+        resolve(true); // 先放行，激活窗口等主窗口打开后再关
         return { ok: true };
       }
       return { ok: false, error: "激活码无效，请检查后重试" };
     });
 
     win.on("closed", () => {
-      resolve(activated);
+      if (activationWin === win) activationWin = null;
+      if (!resolved) resolve(false); // 用户直接关闭 = 放弃激活
     });
 
     void win.loadURL(

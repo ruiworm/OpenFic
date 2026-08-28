@@ -18,7 +18,7 @@ import { appendLog, setLogsDir } from "./logging.js";
 import { captureException, captureExceptionImmediate, startErrorTelemetry, syncTelemetryEnabled } from "./telemetry.js";
 import type { InitializeAppResult } from "../shared/ipc.js";
 import type { DesktopConfig, DesktopInstance } from "../shared/config.js";
-import { checkLicense } from "./license.js";
+import { checkLicense, closeActivationWindow } from "./license.js";
 
 function writeStartupLog(message: string): void {
   appendLog("startup", message);
@@ -477,6 +477,7 @@ async function bootstrap(): Promise<void> {
 
   writeStartupLog("opening shell window");
   openMainWindow();
+  closeActivationWindow();
   // 已关闭自动更新，防止被原版覆盖
   // if (!isDevMode() && mainWindow) await initializeUpdater(mainWindow);
 }
