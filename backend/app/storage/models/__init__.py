@@ -43,6 +43,7 @@ from app.storage.models.note import Note, NoteCategory
 from app.storage.models.world_info import WorldInfo
 from app.storage.models.world_info_entry import WorldInfoEntry
 from app.storage.models.foreshadowing import Foreshadowing
+from app.storage.models.deconstruction import Deconstruction
 
 __all__ = [
     "LLMAuditLog",
@@ -84,4 +85,5 @@ __all__ = [
     "WorldInfo",
     "WorldInfoEntry",
     "Foreshadowing",
+    "Deconstruction",
 ]

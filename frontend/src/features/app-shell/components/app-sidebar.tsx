@@ -1,7 +1,7 @@
 import { Box, Flex } from "@radix-ui/themes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { ChartNoAxesCombined, Globe, LibraryBig, UserRound, Workflow } from "lucide-react";
+import { ChartNoAxesCombined, Globe, LibraryBig, ScanText, UserRound, Workflow } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -171,6 +171,12 @@ export function AppSidebar({ appearance, themeMode, onToggleTheme }: AppSidebarP
         href: "/characters",
         icon: UserRound,
         active: pathname.startsWith("/characters"),
+      },
+      {
+        label: t("topbar.deconstruction", "拆书仿写"),
+        href: "/deconstruction",
+        icon: ScanText,
+        active: pathname.startsWith("/deconstruction"),
       },
       {
         label: t("topbar.promptChains"),

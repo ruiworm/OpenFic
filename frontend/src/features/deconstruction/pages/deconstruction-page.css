@@ -1,0 +1,48 @@
+.deconstruction-page {
+  display: flex;
+  height: calc(100vh - var(--app-topbar-height, 0px));
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-background);
+}
+
+.deconstruction-page__left {
+  width: 440px;
+  min-width: 380px;
+  max-width: 520px;
+  border-right: 1px solid var(--gray-a4);
+  background: var(--gray-a1);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.deconstruction-page__right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .deconstruction-page {
+    flex-direction: column;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .deconstruction-page__left {
+    width: 100%;
+    max-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--gray-a4);
+    height: 480px;
+  }
+
+  .deconstruction-page__right {
+    min-height: 600px;
+  }
+}
