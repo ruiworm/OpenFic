@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """章节导出 API 测试。"""
 
+import io
 import pytest
 from httpx import AsyncClient
 from urllib.parse import unquote
@@ -9,6 +10,7 @@ from app.background.events.publisher import BackgroundEventPublisher
 from app.background.jobs import service as background_service
 from app.background.runtime.context import JobContext
 from app.background.runtime.dispatcher import dispatch_job
+from app.background.runtime.supervisor import get_background_supervisor
 from app.chapter_export import service as chapter_export_service
 from app.background.jobs.models import BackgroundJob
 from app.api.routers import chapter_exports as chapter_exports_router
@@ -332,3 +334,97 @@ async def test_cleanup_keeps_output_while_export_is_still_running(
 
     assert await chapter_export_service.cleanup_chapter_export_files(session) == 0
     assert output_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_export_task_writes_epub_and_serves_download(
+    client: AsyncClient,
+    session,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import zipfile
+
+    async def skip_cancellation_check(_context: JobContext) -> None:
+        return None
+
+    monkeypatch.setattr(chapter_export_service.settings, "chapter_exports_dir", tmp_path)
+    monkeypatch.setattr(JobContext, "check_cancelled", skip_cancellation_check)
+    project_id, volume_id = await _create_project(client)
+    await _create_chapter(client, project_id, volume_id, "第一章", "正文一", 3)
+    await _create_chapter(client, project_id, volume_id, "第二章", "正文二", 3)
+
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/chapter-exports",
+        json={
+            "selected_volume_ids": [volume_id],
+            "included_chapter_ids": [],
+            "excluded_chapter_ids": [],
+            "local_date": "2026-07-28",
+            "format": "epub",
+        },
+    )
+    assert created.status_code == 201
+    job = await background_service.get_job(session, created.json()["id"])
+    assert job is not None
+    job.status = "running"
+    await session.commit()
+
+    context = JobContext(session=session, job=job, publisher=BackgroundEventPublisher(None))
+    result = await dispatch_job(context)
+    await background_service.mark_succeeded(session, context.publisher, context.job, result=result)
+    await session.commit()
+
+    download = await client.get(f"/api/v1/projects/{project_id}/chapter-exports/{job.id}/download")
+    assert download.status_code == 200
+    assert "application/epub+zip" in download.headers["content-type"]
+    with zipfile.ZipFile(io.BytesIO(download.content)) as zf:
+        assert "mimetype" in zf.namelist()
+        assert "OEBPS/content.opf" in zf.namelist()
+
+
+@pytest.mark.asyncio
+async def test_export_task_writes_markdown_zip_and_serves_download(
+    client: AsyncClient,
+    session,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import zipfile
+
+    async def skip_cancellation_check(_context: JobContext) -> None:
+        return None
+
+    monkeypatch.setattr(chapter_export_service.settings, "chapter_exports_dir", tmp_path)
+    monkeypatch.setattr(JobContext, "check_cancelled", skip_cancellation_check)
+    project_id, volume_id = await _create_project(client)
+    await _create_chapter(client, project_id, volume_id, "第一章", "正文一", 3)
+
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/chapter-exports",
+        json={
+            "selected_volume_ids": [volume_id],
+            "included_chapter_ids": [],
+            "excluded_chapter_ids": [],
+            "local_date": "2026-07-28",
+            "format": "markdown",
+        },
+    )
+    assert created.status_code == 201
+    job = await background_service.get_job(session, created.json()["id"])
+    assert job is not None
+    job.status = "running"
+    await session.commit()
+
+    context = JobContext(session=session, job=job, publisher=BackgroundEventPublisher(None))
+    result = await dispatch_job(context)
+    await background_service.mark_succeeded(session, context.publisher, context.job, result=result)
+    await session.commit()
+
+    download = await client.get(f"/api/v1/projects/{project_id}/chapter-exports/{job.id}/download")
+    assert download.status_code == 200
+    assert "application/zip" in download.headers["content-type"]
+    with zipfile.ZipFile(io.BytesIO(download.content)) as zf:
+        names = zf.namelist()
+        assert any(n.endswith("README.md") for n in names)
+        assert any(n.endswith(".md") for n in names)

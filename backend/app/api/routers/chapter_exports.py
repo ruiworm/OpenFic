@@ -35,6 +35,7 @@ async def create_chapter_export(
             included_chapter_ids=data.included_chapter_ids,
             excluded_chapter_ids=data.excluded_chapter_ids,
             local_date=data.local_date.isoformat(),
+            format=data.format,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -101,11 +102,20 @@ async def download_chapter_export(
     job = await _get_export_job(session, project_id, job_id)
     if not chapter_export_service.is_export_download_available(job):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="导出文件不可用或已过期")
-    _part_path, output_path = chapter_export_service.export_file_paths(job.id)
+    output_path = chapter_export_service.get_export_output_path(job)
+    if output_path is None or not output_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="导出文件未找到")
+    filename = str(chapter_export_service.get_export_summary(job)["filename"])
+    if filename.endswith(".epub"):
+        media_type = "application/epub+zip"
+    elif filename.endswith(".zip"):
+        media_type = "application/zip"
+    else:
+        media_type = "text/plain; charset=utf-8"
     return FileResponse(
         output_path,
-        media_type="text/plain; charset=utf-8",
-        filename=str(chapter_export_service.get_export_summary(job)["filename"]),
+        media_type=media_type,
+        filename=filename,
     )
 
 

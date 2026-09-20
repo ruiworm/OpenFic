@@ -48,6 +48,11 @@ _STATIC_PROVIDER_URLS: dict[str, str] = {
     "venice": "https://api.venice.ai/api/v1",
     "vercel": "https://ai-gateway.vercel.sh/v1",
     "xai": "https://api.x.ai/v1",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+    "moonshot": "https://api.moonshot.cn/v1",
+    "doubao": "https://ark.cn-beijing.volces.com/api/v3",
+    "minimax": "https://api.minimaxi.chat/v1",
 }
 
 _PROVIDER_DEFINITIONS: tuple[_ProviderDefinition, ...] = (
@@ -63,6 +68,11 @@ _PROVIDER_DEFINITIONS: tuple[_ProviderDefinition, ...] = (
     _ProviderDefinition("openrouter", "openrouter"),
     _ProviderDefinition("amazon-nova", "nova"),
     _ProviderDefinition("deepseek", "deepseek"),
+    _ProviderDefinition("dashscope", "alibaba-cn"),
+    _ProviderDefinition("zhipu", "zhipuai"),
+    _ProviderDefinition("moonshot", "moonshotai-cn"),
+    _ProviderDefinition("doubao", "doubao"),
+    _ProviderDefinition("minimax", "minimax"),
 )
 
 _PROVIDER_BY_TYPE = {definition.provider_type: definition for definition in _PROVIDER_DEFINITIONS}
@@ -295,10 +305,79 @@ class ModelProviderCatalogService:
     def _find_provider(
         self, snapshot: dict[str, Any], provider_type: str
     ) -> dict[str, Any] | None:
+        definition = _PROVIDER_BY_TYPE.get(provider_type)
         for provider in snapshot.get("providers", []):
-            if provider.get("provider_type") == provider_type:
+            p_type = provider.get("provider_type")
+            if p_type == provider_type:
                 return provider
+            if definition and (
+                p_type == definition.models_dev_provider_id
+                or provider.get("models_dev_provider_id") == definition.models_dev_provider_id
+            ):
+                return provider
+        if provider_type == "doubao":
+            return self._build_doubao_fallback_provider()
         return None
+
+    def _build_doubao_fallback_provider(self) -> dict[str, Any]:
+        return {
+            "provider_type": "doubao",
+            "display_name": "火山引擎 (豆包)",
+            "default_url": _STATIC_PROVIDER_URLS["doubao"],
+            "api": _STATIC_PROVIDER_URLS["doubao"],
+            "icon_path": None,
+            "models_dev_provider_id": "doubao",
+            "supported_task_types": ["llm", "embedding"],
+            "model_counts": {"llm": 3, "embedding": 1, "rerank": 0},
+            "models": [
+                {
+                    "model_id": "doubao-1.5-pro-32k",
+                    "display_name": "Doubao 1.5 Pro 32k",
+                    "task_type": "llm",
+                    "metadata": {
+                        "release_date": "2024-05-15",
+                        "reasoning": False,
+                        "tool_call": True,
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                        "limit": {"context": 32768, "output": 4096},
+                    },
+                },
+                {
+                    "model_id": "doubao-1.5-pro-256k",
+                    "display_name": "Doubao 1.5 Pro 256k",
+                    "task_type": "llm",
+                    "metadata": {
+                        "release_date": "2024-05-15",
+                        "reasoning": False,
+                        "tool_call": True,
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                        "limit": {"context": 262144, "output": 4096},
+                    },
+                },
+                {
+                    "model_id": "doubao-1.5-lite-32k",
+                    "display_name": "Doubao 1.5 Lite 32k",
+                    "task_type": "llm",
+                    "metadata": {
+                        "release_date": "2024-05-15",
+                        "reasoning": False,
+                        "tool_call": True,
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                        "limit": {"context": 32768, "output": 4096},
+                    },
+                },
+                {
+                    "model_id": "doubao-embedding",
+                    "display_name": "Doubao Embedding",
+                    "task_type": "embedding",
+                    "metadata": {
+                        "release_date": "2024-05-15",
+                        "modalities": {"input": ["text"], "output": ["embedding"]},
+                        "limit": {"context": 4096, "output": 1024},
+                    },
+                },
+            ],
+        }
 
     def _provider_summary_from_payload(
         self,
@@ -307,13 +386,29 @@ class ModelProviderCatalogService:
     ) -> CatalogProviderSummary:
         counts = dict(provider_payload.get("model_counts") or {})
         provider_type = str(provider_payload.get("provider_type") or "")
-        api_url = provider_payload.get("api") or provider_payload.get("default_url")
-        if resolve_static_url and (not isinstance(api_url, str) or not api_url.strip()):
-            api_url = _STATIC_PROVIDER_URLS.get(provider_type)
         models_dev_provider_id = provider_payload.get("models_dev_provider_id")
+        definition = _PROVIDER_BY_MODELS_DEV_ID.get(str(models_dev_provider_id)) or _PROVIDER_BY_MODELS_DEV_ID.get(provider_type)
+        if definition:
+            provider_type = definition.provider_type
+
+        api_url = provider_payload.get("api") or provider_payload.get("default_url")
+        if resolve_static_url and (not isinstance(api_url, str) or not api_url.strip() or provider_type in _STATIC_PROVIDER_URLS):
+            api_url = _STATIC_PROVIDER_URLS.get(provider_type) or api_url
+
+        display_name = str(provider_payload.get("display_name") or provider_type)
+        _display_names = {
+            "dashscope": "通义千问 (DashScope)",
+            "zhipu": "智谱 AI (GLM)",
+            "moonshot": "月之暗面 (Kimi)",
+            "doubao": "火山引擎 (豆包)",
+            "minimax": "MiniMax",
+        }
+        if provider_type in _display_names:
+            display_name = _display_names[provider_type]
+
         return CatalogProviderSummary(
             provider_type=provider_type,
-            display_name=str(provider_payload.get("display_name") or provider_type),
+            display_name=display_name,
             default_url=api_url,
             api=api_url,
             icon_path=(

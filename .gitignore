@@ -32,3 +32,5 @@ desktop/node_modules
 desktop/dist
 desktop/dist-electron
 desktop/out
+*.pem
+scripts/keys/

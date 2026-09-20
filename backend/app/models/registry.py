@@ -18,9 +18,15 @@ from app.models.adapters.openai import OpenAIAdapter
 from app.models.adapters.openai_compat_family import (
     AmazonNovaAdapter,
     CohereAdapter,
+    DashScopeAdapter,
+    DoubaoAdapter,
     GroqAdapter,
     HuggingFaceAdapter,
+    MiniMaxAdapter,
+    MoonshotAdapter,
     NvidiaAIEndpointsAdapter,
+    OllamaAdapter,
+    ZhipuAdapter,
 )
 from app.models.adapters.openai_compatible import OpenAICompatibleAdapter
 from app.models.adapters.openai_responses_compatible import (
@@ -39,7 +45,7 @@ class AdapterRegistry:
         "anthropic-compatible": AnthropicCompatibleAdapter,
         "gemini-compatible": GeminiCompatibleAdapter,
         "google-genai": GoogleGenAIAdapter,
-        "ollama": OpenAICompatibleAdapter,
+        "ollama": OllamaAdapter,
         "groq": GroqAdapter,
         "huggingface": HuggingFaceAdapter,
         "deepseek": DeepSeekAdapter,
@@ -48,6 +54,11 @@ class AdapterRegistry:
         "cohere": CohereAdapter,
         "openrouter": OpenRouterAdapter,
         "amazon-nova": AmazonNovaAdapter,
+        "dashscope": DashScopeAdapter,
+        "zhipu": ZhipuAdapter,
+        "moonshot": MoonshotAdapter,
+        "doubao": DoubaoAdapter,
+        "minimax": MiniMaxAdapter,
         "openai-compatible": OpenAICompatibleAdapter,
         "openai-compatible-responses": OpenAIResponsesCompatibleAdapter,
     }

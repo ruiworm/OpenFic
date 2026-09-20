@@ -210,13 +210,12 @@ function transformChapterExport(raw: Record<string, unknown>): ChapterExport {
     id: raw.id as string,
     status: raw.status as string,
     filename: raw.filename as string,
-    mode: raw.mode as ChapterExport["mode"],
+    mode: raw.mode === "volumes" ? "volumes" : "chapters",
+    format: (raw.format as "txt" | "epub" | "markdown") ?? "txt",
     volumeCount: Number(raw.volume_count ?? 0),
     chapterCount: Number(raw.chapter_count ?? 0),
     wordCount: Number(raw.word_count ?? 0),
-    chapterIds: Array.isArray(raw.chapter_ids)
-      ? raw.chapter_ids.filter((chapterId): chapterId is string => typeof chapterId === "string")
-      : [],
+    chapterIds: Array.isArray(raw.chapter_ids) ? raw.chapter_ids.map(String) : [],
     current: Number(raw.current ?? 0),
     total: Number(raw.total ?? 0),
     stage: typeof raw.stage === "string" ? raw.stage : null,
@@ -236,6 +235,7 @@ export async function createChapterExport(
     included_chapter_ids: data.includedChapterIds,
     excluded_chapter_ids: data.excludedChapterIds,
     local_date: data.localDate,
+    format: data.format ?? "txt",
   });
   return transformChapterExport(response.data);
 }

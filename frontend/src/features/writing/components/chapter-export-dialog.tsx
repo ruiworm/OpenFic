@@ -105,6 +105,7 @@ export function ChapterExportDialog({
   const [previewChapter, setPreviewChapter] = useState<Chapter | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [step, setStep] = useState<ChapterExportStep>("selecting");
+  const [exportFormat, setExportFormat] = useState<"txt" | "epub" | "markdown">("txt");
   const [exportJob, setExportJob] = useState<ChapterExport | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -154,6 +155,7 @@ export function ChapterExportDialog({
     setExpandedVolumeIds(new Set(exportableVolumesRef.current.map((volume) => volume.id)));
     setPreviewChapter(null);
     setStep("selecting");
+    setExportFormat("txt");
     setExportJob(null);
     setErrorMessage(null);
     setIsSubmitting(false);
@@ -319,6 +321,7 @@ export function ChapterExportDialog({
         includedChapterIds: [...selection.includedChapterIds],
         excludedChapterIds: [...selection.excludedChapterIds],
         localDate: getLocalDate(),
+        format: exportFormat,
       });
       setExportJob(nextExport);
       setStep("exporting");
@@ -655,15 +658,26 @@ export function ChapterExportDialog({
           className="chapter-export-footer"
         >
           {step === "selecting" ? (
-            <Text
-              size="2"
-              color="gray"
-            >
-              {t(`${EXPORT_I18N_KEY}.selectionInfo`, {
-                chapters: selectedChapterIds.size,
-                words: selectedWordCount,
-              })}
-            </Text>
+            <Flex align="center" gap="3">
+              <Text
+                size="2"
+                color="gray"
+              >
+                {t(`${EXPORT_I18N_KEY}.selectionInfo`, {
+                  chapters: selectedChapterIds.size,
+                  words: selectedWordCount,
+                })}
+              </Text>
+              <SegmentedControl.Root
+                value={exportFormat}
+                onValueChange={(val) => setExportFormat(val as "txt" | "epub" | "markdown")}
+                size="1"
+              >
+                <SegmentedControl.Item value="txt">TXT</SegmentedControl.Item>
+                <SegmentedControl.Item value="epub">EPUB</SegmentedControl.Item>
+                <SegmentedControl.Item value="markdown">Markdown</SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </Flex>
           ) : (
             <span />
           )}

@@ -3,6 +3,7 @@ export interface ChapterExportCreate {
   includedChapterIds: string[];
   excludedChapterIds: string[];
   localDate: string;
+  format?: "txt" | "epub" | "markdown";
 }
 
 export interface ChapterExport {
@@ -10,6 +11,7 @@ export interface ChapterExport {
   status: string;
   filename: string;
   mode: "chapters" | "volumes";
+  format?: "txt" | "epub" | "markdown";
   volumeCount: number;
   chapterCount: number;
   wordCount: number;
