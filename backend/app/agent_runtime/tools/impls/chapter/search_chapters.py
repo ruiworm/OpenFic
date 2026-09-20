@@ -30,7 +30,7 @@ from app.retrieval.chapter_index import (
     compute_chapter_source_hash,
     get_index_settings,
 )
-from app.retrieval.service import OpenFicRetrievalService
+from app.retrieval.service import IndexNotReadyError, OpenFicRetrievalService
 from app.retrieval.types import ChunkSearchResult
 from app.settings import settings
 from app.storage.database import create_session
@@ -102,12 +102,14 @@ async def _build_embedding_client(session: AsyncSession, model_ref_id: str):
     try:
         provider_service = ModelProviderService(EncryptionService(settings.encryption_key))
         api_key = provider_service.get_decrypted_api_key(provider) or ""
+        custom_headers = provider_service.get_decrypted_custom_headers(provider)
         return EmbeddingClient(
             EmbeddingConfig(
                 provider_type=provider.provider_type,
                 base_url=provider.url,
                 api_key=api_key,
                 model_id=model.model_id,
+                custom_headers=custom_headers or None,
                 dimensions=model.dimensions,
             )
         )
@@ -130,12 +132,14 @@ async def _build_rerank_client(
     try:
         provider_service = ModelProviderService(EncryptionService(settings.encryption_key))
         api_key = provider_service.get_decrypted_api_key(provider) or ""
+        custom_headers = provider_service.get_decrypted_custom_headers(provider)
         return RerankClient(
             RerankConfig(
                 provider_type=provider.provider_type,
                 base_url=provider.url,
                 api_key=api_key,
                 model_id=model.model_id,
+                custom_headers=custom_headers or None,
             )
         )
     except Exception:
@@ -176,7 +180,7 @@ async def _compute_index_freshness(
         project_id=project_id,
         index_key=index_key,
     )
-    chapters = await chapter_repo.list_by_project(session, project_id)
+    chapters = await chapter_repo.list_index_source_by_project(session, project_id)
     chapters_by_id = {chapter.id: chapter for chapter in chapters}
 
     has_searchable = False
@@ -344,6 +348,9 @@ class SearchChaptersTool(AgentTool):
                 logger.info("章节检索: 开始执行 LanceDB 查询 project_id={}", self.project_id)
                 results = await query_builder.limit(final_limit).run()
                 logger.info("章节检索: 查询完成 result_count={}", len(results))
+            except IndexNotReadyError as exc:
+                logger.exception("章节检索执行失败: {}", exc)
+                raise ToolExecutionError(f"章节检索执行失败: {exc}") from exc
             except Exception as exc:
                 if isinstance(exc, ToolExecutionError):
                     raise

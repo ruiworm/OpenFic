@@ -5,6 +5,8 @@ Setting API Schemas - 设置请求/响应模型。
 
 from pydantic import BaseModel, Field
 
+from app.memory.summary_config import DEFAULT_SUMMARY_MODEL
+
 
 class AgentToolPermissionItem(BaseModel):
     """Agent 工具权限设置项。"""
@@ -33,17 +35,78 @@ class ClearAuditDetailsResponse(BaseModel):
     cleared_detail_bytes: int = Field(description="已清空详情字段的 UTF-8 字节数估算")
 
 
+THEME_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class ThemePalette(BaseModel):
+    """Radix Custom palette 的基础色和可选完整变量。"""
+
+    accent: str = Field(default="#000000", pattern=THEME_COLOR_PATTERN)
+    gray: str = Field(default="#646464", pattern=THEME_COLOR_PATTERN)
+    background: str = Field(default="#ffffff", pattern=THEME_COLOR_PATTERN)
+    variables: dict[str, str] | None = Field(default=None, description="完整主题 CSS 变量")
+
+
+def _default_dark_theme_palette() -> ThemePalette:
+    return ThemePalette(
+        accent="#ffffff",
+        gray="#b4b4b4",
+        background="#111111",
+    )
+
+
+class ThemeConfig(BaseModel):
+    """Radix Themes 可使用的双模式完整色板。"""
+
+    light: ThemePalette = Field(default_factory=ThemePalette)
+    dark: ThemePalette = Field(default_factory=_default_dark_theme_palette)
+
+
 class SettingsResponse(BaseModel):
     """设置响应。"""
 
     language: str = Field(default="zh-CN", description="语言")
     theme: str = Field(default="light", description="主题")
+    theme_preset: str = Field(default="classic", description="主题预设 ID")
+    light_theme_preset: str = Field(default="classic", description="浅色主题预设 ID")
+    dark_theme_preset: str = Field(default="classic", description="深色主题预设 ID")
+    theme_config: ThemeConfig = Field(default_factory=ThemeConfig, description="主题外观配置")
     font_family: str = Field(default="system-ui", description="字体")
     code_font_family: str = Field(default="ui-monospace", description="代码字体")
     base_font_size: int = Field(default=14, description="基础字号（px）")
     editor_font_size: int = Field(default=16, description="编辑器字号（px）")
     default_model: str = Field(default="", description="默认模型 ID")
     light_model: str = Field(default="", description="轻量模型 ID")
+    summary_model: str = Field(default=DEFAULT_SUMMARY_MODEL, description="摘要模型引用")
+    summary_auto_generate_chapter: bool = Field(
+        default=True,
+        description="是否自动生成章节摘要",
+    )
+    summary_auto_generate_long_term: bool = Field(
+        default=True,
+        description="是否自动生成区间摘要",
+    )
+    summary_min_chapter_word_count: int = Field(
+        default=500,
+        ge=0,
+        description="参与摘要的章节最小字数",
+    )
+    summary_batch_size: int = Field(default=10, ge=1, description="自动摘要批次大小")
+    summary_long_term_interval: int = Field(
+        default=10,
+        ge=1,
+        description="区间摘要包含的章节数",
+    )
+    summary_chapter_target_length: int = Field(
+        default=200,
+        ge=1,
+        description="章节摘要目标字数",
+    )
+    summary_long_term_target_length: int = Field(
+        default=500,
+        ge=1,
+        description="区间摘要目标字数",
+    )
     default_embedding_model: str = Field(default="", description="默认 Embedding 模型 ID")
     index_mode: str = Field(default="off", description="索引启用模式：off/all/selected")
     index_enabled_projects: list[str] = Field(
@@ -87,6 +150,10 @@ class SettingsResponse(BaseModel):
         default=False,
         description="输入成对符号的左符号时是否自动补齐右符号",
     )
+    editor_show_line_numbers: bool = Field(
+        default=False,
+        description="是否在章节编辑器中显示行号",
+    )
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -94,12 +161,53 @@ class SettingsUpdateRequest(BaseModel):
 
     language: str | None = Field(default=None, description="语言")
     theme: str | None = Field(default=None, description="主题")
+    theme_preset: str | None = Field(default=None, description="主题预设 ID")
+    light_theme_preset: str | None = Field(default=None, description="浅色主题预设 ID")
+    dark_theme_preset: str | None = Field(default=None, description="深色主题预设 ID")
+    theme_config: ThemeConfig | None = Field(default=None, description="主题外观配置")
     font_family: str | None = Field(default=None, description="字体")
     code_font_family: str | None = Field(default=None, description="代码字体")
     base_font_size: int | None = Field(default=None, description="基础字号（px）")
     editor_font_size: int | None = Field(default=None, description="编辑器字号（px）")
     default_model: str | None = Field(default=None, description="默认模型 ID")
     light_model: str | None = Field(default=None, description="轻量模型 ID")
+    summary_model: str | None = Field(
+        default=None,
+        description="摘要模型 ID，空值时跟随轻量模型",
+    )
+    summary_auto_generate_chapter: bool | None = Field(
+        default=None,
+        description="是否自动生成章节摘要",
+    )
+    summary_auto_generate_long_term: bool | None = Field(
+        default=None,
+        description="是否自动生成区间摘要",
+    )
+    summary_min_chapter_word_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="参与摘要的章节最小字数",
+    )
+    summary_batch_size: int | None = Field(default=None, ge=1, description="自动摘要批次大小")
+    summary_long_term_interval: int | None = Field(
+        default=None,
+        ge=1,
+        description="区间摘要包含的章节数",
+    )
+    summary_chapter_target_length: int | None = Field(
+        default=None,
+        ge=1,
+        description="章节摘要目标字数",
+    )
+    summary_long_term_target_length: int | None = Field(
+        default=None,
+        ge=1,
+        description="区间摘要目标字数",
+    )
+    confirm_summary_range_invalidation: bool = Field(
+        default=False,
+        description="确认清理所有区间摘要",
+    )
     default_embedding_model: str | None = Field(
         default=None,
         description="默认 Embedding 模型 ID",
@@ -148,4 +256,76 @@ class SettingsUpdateRequest(BaseModel):
     editor_auto_pair_symbols: bool | None = Field(
         default=None,
         description="输入成对符号的左符号时是否自动补齐右符号",
+    )
+    editor_show_line_numbers: bool | None = Field(
+        default=None,
+        description="是否在章节编辑器中显示行号",
+    )
+
+
+class WebSearchProviderField(BaseModel):
+    """联网搜索 provider 的扩展字段定义。"""
+
+    key: str = Field(..., description="扩展参数键（存入 extras）")
+    field_type: str = Field(..., description="字段类型：text / select")
+    required: bool = Field(default=False, description="是否必填")
+    options: list[str] = Field(default_factory=list, description="select 类型的可选值")
+
+
+class WebSearchProviderInfo(BaseModel):
+    """联网搜索 provider 元数据。"""
+
+    name: str = Field(..., description="provider 名称")
+    requires_api_key: bool = Field(..., description="是否需要 API Key")
+    fields: list[WebSearchProviderField] = Field(
+        default_factory=list, description="扩展字段定义"
+    )
+
+
+class WebSearchSettingsResponse(BaseModel):
+    """联网搜索设置响应（不含明文 API Key）。"""
+
+    enabled: bool = Field(..., description="是否启用联网搜索")
+    provider: str = Field(..., description="当前 provider 名称")
+    has_api_keys: dict[str, bool] = Field(
+        default_factory=dict, description="各 provider 是否已配置 API Key"
+    )
+    max_results: int = Field(..., description="搜索结果数量限制")
+    domain_filters: list[str] = Field(default_factory=list, description="域名过滤列表")
+    extras: dict[str, str] = Field(default_factory=dict, description="扩展参数")
+    trust_proxy_environment: bool = Field(
+        default=True,
+        description="是否信任代理环境变量",
+    )
+    bypass_ssrf_protection: bool = Field(
+        default=False,
+        description="是否绕过网页读取的 SSRF 防护",
+    )
+
+
+class WebSearchSettingsUpdateRequest(BaseModel):
+    """联网搜索设置更新请求。"""
+
+    enabled: bool | None = Field(default=None, description="是否启用联网搜索")
+    provider: str | None = Field(default=None, description="provider 名称")
+    api_key: str | None = Field(
+        default=None,
+        description="当前 provider 的 API Key：不传保持不变；传空字符串清除；传非空更新",
+    )
+    extras: dict[str, str] | None = Field(
+        default=None, description="扩展参数（整体替换，不传保持不变）"
+    )
+    max_results: int | None = Field(
+        default=None, ge=1, le=20, description="搜索结果数量限制（1-20）"
+    )
+    domain_filters: list[str] | None = Field(
+        default=None, description="需要从搜索结果中排除的域名列表"
+    )
+    trust_proxy_environment: bool | None = Field(
+        default=None,
+        description="是否信任代理环境变量",
+    )
+    bypass_ssrf_protection: bool | None = Field(
+        default=None,
+        description="是否绕过网页读取的 SSRF 防护",
     )

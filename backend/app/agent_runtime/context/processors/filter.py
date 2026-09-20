@@ -5,6 +5,7 @@ from typing import Any
 from app.agent_runtime.context.types import ContextMessage
 
 _DROPPED_KINDS = {"thinking", "reasoning", "ui_only"}
+_MODEL_VISIBLE_FAILURE_FIELDS = ("dispatch_id", "agent_key", "agent_number")
 
 
 def _is_history(m: ContextMessage) -> bool:
@@ -116,7 +117,11 @@ def filter_tool_result_metadata(parts: list[ContextMessage]) -> list[ContextMess
         if message.role != "tool":
             result.append(message)
             continue
-        visible_content = filter_tool_result_metadata_content(message.content)
+        tool_name = message.name or (message.metadata or {}).get("tool_name")
+        visible_content = filter_tool_result_metadata_content(
+            message.content,
+            tool_name=tool_name if isinstance(tool_name, str) else None,
+        )
         if visible_content == message.content:
             result.append(message)
             continue
@@ -137,10 +142,112 @@ def _parse_tool_result(content: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def filter_tool_result_metadata_content(content: str) -> str:
+def _single_line(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    return normalized or None
+
+
+def _format_web_search_context(payload: dict[str, Any]) -> str | None:
+    query = _single_line(payload.get("query"))
+    results = payload.get("results")
+    if query is None or not isinstance(results, list):
+        return None
+
+    lines = [f"[ `{query.replace('`', r'\\`')}` 的搜索结果 ]", ""]
+    result_number = 1
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        title = _single_line(result.get("title"))
+        url = _single_line(result.get("url"))
+        snippet = _single_line(result.get("snippet"))
+        if not title and not url and not snippet:
+            continue
+        lines.append(f"{result_number}. {title or url or ''}")
+        if snippet:
+            lines.append(f"    {snippet}")
+        if url:
+            lines.append(f"    URL: {url}")
+        lines.append("")
+        result_number += 1
+    return "\n".join(lines).rstrip()
+
+
+def _format_web_fetch_context(payload: dict[str, Any]) -> str | None:
+    content = payload.get("content")
+    return content if isinstance(content, str) else None
+
+
+def filter_tool_result_metadata_content(
+    content: str,
+    *,
+    tool_name: str | None = None,
+) -> str:
     """返回可发送给模型的工具结果内容。"""
     payload = _parse_tool_result(content)
-    if payload is None or "metadata" not in payload:
+    if payload is None:
+        return content
+    if payload.get("type") == "control":
+        if "metadata" not in payload:
+            return content
+        return json.dumps(
+            {key: value for key, value in payload.items() if key != "metadata"},
+            ensure_ascii=False,
+        )
+    if payload.get("type") == "fail" or payload.get("success") is False:
+        message = payload.get("message") or payload.get("error")
+        if not isinstance(message, str) or not message.strip():
+            code = payload.get("code")
+            code = code if isinstance(code, str) and code else "execution_failed"
+            message = f"工具错误（{code}）：未提供具体错误消息"
+        else:
+            message = message.strip()
+        visible_fields = {
+            key: payload[key]
+            for key in _MODEL_VISIBLE_FAILURE_FIELDS
+            if key in payload
+        }
+        if visible_fields:
+            return json.dumps(
+                {
+                    key: payload[key]
+                    for key in ("type", "success", "code")
+                    if key in payload
+                }
+                | {"message": message, **visible_fields},
+                ensure_ascii=False,
+            )
+        return message
+    error = payload.get("error")
+    if isinstance(error, str) and error.strip():
+        message = error.strip()
+        if visible_fields := {
+            key: payload[key]
+            for key in _MODEL_VISIBLE_FAILURE_FIELDS
+            if key in payload
+        }:
+            return json.dumps(
+                {
+                    "type": "fail",
+                    "success": False,
+                    "code": "execution_failed",
+                    "message": message,
+                    **visible_fields,
+                },
+                ensure_ascii=False,
+            )
+        return message
+    if tool_name == "web_search":
+        formatted = _format_web_search_context(payload)
+        if formatted is not None:
+            return formatted
+    if tool_name == "web_fetch":
+        formatted = _format_web_fetch_context(payload)
+        if formatted is not None:
+            return formatted
+    if "metadata" not in payload:
         return content
     return json.dumps(
         {key: value for key, value in payload.items() if key != "metadata"},

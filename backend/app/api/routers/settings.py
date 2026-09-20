@@ -6,7 +6,7 @@ Settings Router - 用户设置 API。
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,16 @@ from app.agent_runtime.tools.permission_metadata import (
     SETTING_KEY_AGENT_BYPASS_TOOL_APPROVAL,
     SETTING_KEY_AGENT_TOOL_PERMISSIONS,
     get_default_agent_tool_permissions,
+)
+from app.agent_runtime.tools.impls.web_search.config import (
+    WebSearchSettings,
+    load_web_search_config,
+    save_web_search_config,
+)
+from app.agent_runtime.tools.impls.web_search.result_filter import normalize_domain_filters
+from app.agent_runtime.tools.impls.web_search.providers import (
+    list_provider_metadata,
+    list_provider_names,
 )
 from app.agent_runtime.context.processors.compress import (
     SETTING_KEY_COMPRESS_SYSTEM_PROMPTS,
@@ -26,14 +36,38 @@ from app.api.schemas.setting import (
     AgentToolPermissionItem,
     AuditDetailsStorageResponse,
     ClearAuditDetailsResponse,
+    ThemeConfig,
     SettingsResponse,
     SettingsUpdateRequest,
+    WebSearchProviderInfo,
+    WebSearchSettingsResponse,
+    WebSearchSettingsUpdateRequest,
 )
 from app.audit.queue import (
     AUDIT_DETAILS_PERSISTENCE_SETTING_KEY,
     set_audit_details_persistence,
 )
 from app.audit.repo import LLMAuditLogRepo
+from app.memory.summary_config import (
+    DEFAULT_SUMMARY_AUTO_GENERATE_CHAPTER,
+    DEFAULT_SUMMARY_AUTO_GENERATE_LONG_TERM,
+    DEFAULT_SUMMARY_BATCH_SIZE,
+    DEFAULT_SUMMARY_CHAPTER_TARGET_LENGTH,
+    DEFAULT_SUMMARY_LONG_TERM_INTERVAL,
+    DEFAULT_SUMMARY_LONG_TERM_TARGET_LENGTH,
+    DEFAULT_SUMMARY_MIN_CHAPTER_WORD_COUNT,
+    DEFAULT_SUMMARY_MODEL,
+    SETTING_KEY_SUMMARY_AUTO_GENERATE_CHAPTER,
+    SETTING_KEY_SUMMARY_AUTO_GENERATE_LONG_TERM,
+    SETTING_KEY_SUMMARY_BATCH_SIZE,
+    SETTING_KEY_SUMMARY_CHAPTER_TARGET_LENGTH,
+    SETTING_KEY_SUMMARY_LONG_TERM_INTERVAL,
+    SETTING_KEY_SUMMARY_LONG_TERM_TARGET_LENGTH,
+    SETTING_KEY_SUMMARY_MIN_CHAPTER_WORD_COUNT,
+    SETTING_KEY_SUMMARY_MODEL,
+    parse_summary_settings,
+)
+from app.memory.chapter.summary_service import invalidate_all_long_term_summaries
 from app.retrieval.chapter_index import (
     DEFAULT_INDEX_AUTO_STRATEGY,
     DEFAULT_INDEX_CHUNK_OVERLAP,
@@ -64,6 +98,10 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # 设置键名常量
 SETTING_KEY_LANGUAGE = "language"
 SETTING_KEY_THEME = "theme"
+SETTING_KEY_THEME_PRESET = "theme_preset"
+SETTING_KEY_LIGHT_THEME_PRESET = "light_theme_preset"
+SETTING_KEY_DARK_THEME_PRESET = "dark_theme_preset"
+SETTING_KEY_THEME_CONFIG = "theme_config"
 SETTING_KEY_FONT_FAMILY = "font_family"
 SETTING_KEY_CODE_FONT_FAMILY = "code_font_family"
 SETTING_KEY_BASE_FONT_SIZE = "base_font_size"
@@ -77,16 +115,35 @@ SETTING_KEY_AUDIT_PERSIST_DETAILS = AUDIT_DETAILS_PERSISTENCE_SETTING_KEY
 SETTING_KEY_EDITOR_AUTO_INDENT = "editor_auto_indent"
 SETTING_KEY_EDITOR_AUTO_CONVERT_PUNCTUATION = "editor_auto_convert_punctuation"
 SETTING_KEY_EDITOR_AUTO_PAIR_SYMBOLS = "editor_auto_pair_symbols"
+SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS = "editor_show_line_numbers"
 # 默认值
 DEFAULT_SETTINGS = {
     SETTING_KEY_LANGUAGE: "zh-CN",
     SETTING_KEY_THEME: "light",
+    SETTING_KEY_THEME_PRESET: "classic",
+    SETTING_KEY_LIGHT_THEME_PRESET: "classic",
+    SETTING_KEY_DARK_THEME_PRESET: "classic",
+    SETTING_KEY_THEME_CONFIG: ThemeConfig().model_dump_json(exclude_none=True),
     SETTING_KEY_FONT_FAMILY: "system-ui",
     SETTING_KEY_CODE_FONT_FAMILY: "ui-monospace",
     SETTING_KEY_BASE_FONT_SIZE: "14",
     SETTING_KEY_EDITOR_FONT_SIZE: "16",
     SETTING_KEY_DEFAULT_MODEL: "",
     SETTING_KEY_LIGHT_MODEL: "",
+    SETTING_KEY_SUMMARY_MODEL: DEFAULT_SUMMARY_MODEL,
+    SETTING_KEY_SUMMARY_AUTO_GENERATE_CHAPTER: json.dumps(
+        DEFAULT_SUMMARY_AUTO_GENERATE_CHAPTER,
+        ensure_ascii=False,
+    ),
+    SETTING_KEY_SUMMARY_AUTO_GENERATE_LONG_TERM: json.dumps(
+        DEFAULT_SUMMARY_AUTO_GENERATE_LONG_TERM,
+        ensure_ascii=False,
+    ),
+    SETTING_KEY_SUMMARY_MIN_CHAPTER_WORD_COUNT: str(DEFAULT_SUMMARY_MIN_CHAPTER_WORD_COUNT),
+    SETTING_KEY_SUMMARY_BATCH_SIZE: str(DEFAULT_SUMMARY_BATCH_SIZE),
+    SETTING_KEY_SUMMARY_LONG_TERM_INTERVAL: str(DEFAULT_SUMMARY_LONG_TERM_INTERVAL),
+    SETTING_KEY_SUMMARY_CHAPTER_TARGET_LENGTH: str(DEFAULT_SUMMARY_CHAPTER_TARGET_LENGTH),
+    SETTING_KEY_SUMMARY_LONG_TERM_TARGET_LENGTH: str(DEFAULT_SUMMARY_LONG_TERM_TARGET_LENGTH),
     SETTING_KEY_DEFAULT_EMBEDDING_MODEL: "",
     SETTING_KEY_INDEX_MODE: DEFAULT_INDEX_MODE,
     SETTING_KEY_INDEX_ENABLED_PROJECTS: "[]",
@@ -105,6 +162,7 @@ DEFAULT_SETTINGS = {
     SETTING_KEY_EDITOR_AUTO_INDENT: "true",
     SETTING_KEY_EDITOR_AUTO_CONVERT_PUNCTUATION: "false",
     SETTING_KEY_EDITOR_AUTO_PAIR_SYMBOLS: "false",
+    SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS: "false",
 }
 
 
@@ -168,6 +226,17 @@ def _parse_bool_setting(raw_value: str | None, *, default: bool = False) -> bool
     return default
 
 
+def _parse_theme_config(raw_value: str | None) -> ThemeConfig:
+    if raw_value is None or raw_value == "":
+        return ThemeConfig()
+
+    try:
+        return ThemeConfig.model_validate(json.loads(raw_value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        logger.warning("theme_config 配置非法，已回退到默认主题配置")
+        return ThemeConfig()
+
+
 def _merge_default_agent_tool_permissions(
     items: list[AgentToolPermissionItem],
 ) -> list[AgentToolPermissionItem]:
@@ -221,6 +290,7 @@ def _parse_int_setting(raw_value: str | None, *, default: int) -> int:
 @router.get(
     "",
     response_model=SettingsResponse,
+    response_model_exclude_none=True,
     summary="获取设置",
 )
 async def get_settings(
@@ -239,6 +309,7 @@ async def get_settings(
 
     # 将设置列表转换为字典
     settings_dict = {s.key: s.value for s in settings_list}
+    summary_settings = parse_summary_settings(settings_dict)
     agent_tool_permissions = _merge_default_agent_tool_permissions(
         _parse_agent_tool_permissions(
             settings_dict.get(
@@ -251,6 +322,20 @@ async def get_settings(
     return SettingsResponse(
         language=settings_dict.get(SETTING_KEY_LANGUAGE, DEFAULT_SETTINGS[SETTING_KEY_LANGUAGE]),
         theme=settings_dict.get(SETTING_KEY_THEME, DEFAULT_SETTINGS[SETTING_KEY_THEME]),
+        theme_preset=settings_dict.get(
+            SETTING_KEY_THEME_PRESET, DEFAULT_SETTINGS[SETTING_KEY_THEME_PRESET]
+        ),
+        light_theme_preset=settings_dict.get(
+            SETTING_KEY_LIGHT_THEME_PRESET,
+            settings_dict.get(SETTING_KEY_THEME_PRESET, DEFAULT_SETTINGS[SETTING_KEY_LIGHT_THEME_PRESET]),
+        ),
+        dark_theme_preset=settings_dict.get(
+            SETTING_KEY_DARK_THEME_PRESET,
+            settings_dict.get(SETTING_KEY_THEME_PRESET, DEFAULT_SETTINGS[SETTING_KEY_DARK_THEME_PRESET]),
+        ),
+        theme_config=_parse_theme_config(
+            settings_dict.get(SETTING_KEY_THEME_CONFIG, DEFAULT_SETTINGS[SETTING_KEY_THEME_CONFIG])
+        ),
         font_family=settings_dict.get(
             SETTING_KEY_FONT_FAMILY, DEFAULT_SETTINGS[SETTING_KEY_FONT_FAMILY]
         ),
@@ -277,6 +362,14 @@ code_font_family=settings_dict.get(
         light_model=settings_dict.get(
             SETTING_KEY_LIGHT_MODEL, DEFAULT_SETTINGS[SETTING_KEY_LIGHT_MODEL]
         ),
+        summary_model=summary_settings.model_id,
+        summary_auto_generate_chapter=summary_settings.auto_generate_chapter,
+        summary_auto_generate_long_term=summary_settings.auto_generate_long_term,
+        summary_min_chapter_word_count=summary_settings.min_chapter_word_count,
+        summary_batch_size=summary_settings.batch_size,
+        summary_long_term_interval=summary_settings.long_term_interval,
+        summary_chapter_target_length=summary_settings.chapter_target_length,
+        summary_long_term_target_length=summary_settings.long_term_target_length,
         default_embedding_model=settings_dict.get(
             SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
             DEFAULT_SETTINGS[SETTING_KEY_DEFAULT_EMBEDDING_MODEL],
@@ -371,18 +464,27 @@ code_font_family=settings_dict.get(
             ),
             default=False,
         ),
+        editor_show_line_numbers=_parse_bool_setting(
+            settings_dict.get(
+                SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS,
+                DEFAULT_SETTINGS[SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS],
+            ),
+            default=False,
+        ),
     )
 
 
 @router.put(
     "",
     response_model=SettingsResponse,
+    response_model_exclude_none=True,
     status_code=status.HTTP_200_OK,
     summary="更新设置",
 )
 @router.patch(
     "",
     response_model=SettingsResponse,
+    response_model_exclude_none=True,
     status_code=status.HTTP_200_OK,
     summary="更新设置",
 )
@@ -405,6 +507,7 @@ async def update_settings(
         for value in (
             request.default_model,
             request.light_model,
+            request.summary_model,
             request.default_embedding_model,
             request.index_mode,
             request.index_enabled_projects,
@@ -420,6 +523,19 @@ async def update_settings(
 
     settings_list = await setting_repo.get_all(session)
     current_settings = {setting.key: setting.value for setting in settings_list}
+    current_summary_settings = parse_summary_settings(current_settings)
+    summary_range_changed = (
+        request.summary_long_term_interval is not None
+        and request.summary_long_term_interval != current_summary_settings.long_term_interval
+    )
+    if summary_range_changed and not request.confirm_summary_range_invalidation:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "summary_range_invalidation_required",
+                "message": "修改摘要区间逻辑会清理所有区间摘要，请确认后继续。",
+            },
+        )
 
     # 构建要更新的设置字典
     settings_to_update: dict[str, str] = {}
@@ -431,6 +547,16 @@ async def update_settings(
         settings_to_update[SETTING_KEY_LANGUAGE] = request.language
     if request.theme is not None:
         settings_to_update[SETTING_KEY_THEME] = request.theme
+    if request.theme_preset is not None:
+        settings_to_update[SETTING_KEY_THEME_PRESET] = request.theme_preset
+    if request.light_theme_preset is not None:
+        settings_to_update[SETTING_KEY_LIGHT_THEME_PRESET] = request.light_theme_preset
+    if request.dark_theme_preset is not None:
+        settings_to_update[SETTING_KEY_DARK_THEME_PRESET] = request.dark_theme_preset
+    if request.theme_config is not None:
+        settings_to_update[SETTING_KEY_THEME_CONFIG] = request.theme_config.model_dump_json(
+            exclude_none=True
+        )
     if request.font_family is not None:
         settings_to_update[SETTING_KEY_FONT_FAMILY] = request.font_family
     if request.code_font_family is not None:
@@ -443,6 +569,36 @@ async def update_settings(
         settings_to_update[SETTING_KEY_DEFAULT_MODEL] = request.default_model
     if request.light_model is not None:
         settings_to_update[SETTING_KEY_LIGHT_MODEL] = request.light_model
+    if request.summary_model is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_MODEL] = request.summary_model.strip()
+    if request.summary_auto_generate_chapter is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_AUTO_GENERATE_CHAPTER] = json.dumps(
+            request.summary_auto_generate_chapter,
+            ensure_ascii=False,
+        )
+    if request.summary_auto_generate_long_term is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_AUTO_GENERATE_LONG_TERM] = json.dumps(
+            request.summary_auto_generate_long_term,
+            ensure_ascii=False,
+        )
+    if request.summary_min_chapter_word_count is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_MIN_CHAPTER_WORD_COUNT] = str(
+            request.summary_min_chapter_word_count
+        )
+    if request.summary_batch_size is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_BATCH_SIZE] = str(request.summary_batch_size)
+    if request.summary_long_term_interval is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_LONG_TERM_INTERVAL] = str(
+            request.summary_long_term_interval
+        )
+    if request.summary_chapter_target_length is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_CHAPTER_TARGET_LENGTH] = str(
+            request.summary_chapter_target_length
+        )
+    if request.summary_long_term_target_length is not None:
+        settings_to_update[SETTING_KEY_SUMMARY_LONG_TERM_TARGET_LENGTH] = str(
+            request.summary_long_term_target_length
+        )
     if request.default_embedding_model is not None:
         old_embedding_model = current_settings.get(
             SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
@@ -553,11 +709,19 @@ async def update_settings(
             request.editor_auto_pair_symbols,
             ensure_ascii=False,
         )
+    if request.editor_show_line_numbers is not None:
+        settings_to_update[SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS] = json.dumps(
+            request.editor_show_line_numbers,
+            ensure_ascii=False,
+        )
 
     # 分块参数或嵌入模型变更会使现有索引失效，需要标记重建。
     if index_contract_changed:
         await retrieval_chapter_index_state_repo.mark_all_needs_rebuild(session)
         await retrieval_index_repo.mark_all_needs_rebuild(session)
+
+    if summary_range_changed:
+        await invalidate_all_long_term_summaries(session)
 
     # 批量更新
     if settings_to_update:
@@ -573,6 +737,109 @@ async def update_settings(
 
     # 返回更新后的完整设置
     return await get_settings(session)
+
+
+@router.get(
+    "/web-search/providers",
+    response_model=list[WebSearchProviderInfo],
+    summary="获取联网搜索 provider 列表",
+)
+async def get_web_search_providers() -> list[WebSearchProviderInfo]:
+    """返回后端支持的全部联网搜索 provider（按名称字母序）。"""
+    return [
+        WebSearchProviderInfo.model_validate(provider)
+        for provider in list_provider_metadata()
+    ]
+
+
+@router.get(
+    "/web-search",
+    response_model=WebSearchSettingsResponse,
+    summary="获取联网搜索设置",
+)
+async def get_web_search_settings(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> WebSearchSettingsResponse:
+    config = await load_web_search_config(session)
+    return _build_web_search_settings_response(config)
+
+
+def _build_web_search_settings_response(
+    config: WebSearchSettings,
+) -> WebSearchSettingsResponse:
+    return WebSearchSettingsResponse(
+        enabled=config.enabled,
+        provider=config.provider,
+        has_api_keys={
+            provider: bool(config.api_keys.get(provider)) for provider in list_provider_names()
+        },
+        max_results=config.max_results,
+        domain_filters=config.domain_filters,
+        extras=config.extras,
+        trust_proxy_environment=config.trust_proxy_environment,
+        bypass_ssrf_protection=config.bypass_ssrf_protection,
+    )
+
+
+@router.put(
+    "/web-search",
+    response_model=WebSearchSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="更新联网搜索设置",
+)
+async def update_web_search_settings(
+    request: WebSearchSettingsUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> WebSearchSettingsResponse:
+    config = await load_web_search_config(session)
+
+    previous_provider = config.provider
+    if request.enabled is not None:
+        config.enabled = request.enabled
+    if request.provider is not None:
+        provider = request.provider.strip()
+        if provider and provider not in list_provider_names():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的搜索 provider: {provider}",
+            )
+        config.provider = provider
+    if request.api_key is not None:
+        if not config.provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="设置 API Key 前必须选择搜索 provider",
+            )
+        api_key = request.api_key.strip()
+        if api_key:
+            config.api_keys[config.provider] = api_key
+        else:
+            config.api_keys.pop(config.provider, None)
+    if request.max_results is not None:
+        config.max_results = request.max_results
+    if request.domain_filters is not None:
+        config.domain_filters = normalize_domain_filters(request.domain_filters)
+    if request.trust_proxy_environment is not None:
+        config.trust_proxy_environment = request.trust_proxy_environment
+    if request.bypass_ssrf_protection is not None:
+        config.bypass_ssrf_protection = request.bypass_ssrf_protection
+    if request.extras is not None:
+        valid_keys = {
+            field["key"]
+            for item in list_provider_metadata()
+            if item["name"] == config.provider
+            for field in item["fields"]
+        }
+        config.extras = {
+            key: value.strip()
+            for key, value in request.extras.items()
+            if key in valid_keys and isinstance(value, str) and value.strip()
+        }
+    elif config.provider != previous_provider:
+        config.extras = {}
+
+    await save_web_search_config(session, config)
+    return _build_web_search_settings_response(config)
 
 
 @router.get(

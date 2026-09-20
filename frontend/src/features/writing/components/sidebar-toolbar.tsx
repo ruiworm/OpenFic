@@ -1,5 +1,14 @@
 import { Box, Flex, IconButton, Tooltip, Badge } from "@radix-ui/themes";
-import { BookPlus, Download, FilePlus, GripVertical, Check, X, Search } from "lucide-react";
+import {
+  BookPlus,
+  Check,
+  Download,
+  FilePlus,
+  GripVertical,
+  Search,
+  Summary,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +25,7 @@ interface SidebarToolbarProps {
   onChapterSelect: (chapterId: string) => void;
   onCreateChapter: () => void;
   onCreateVolume: () => void;
+  onOpenSummary?: () => void;
   onExport: () => void;
   onSaveOrder: () => void;
   onCancelOrder: () => void;
@@ -30,6 +40,7 @@ export function SidebarToolbar({
   onChapterSelect,
   onCreateChapter,
   onCreateVolume,
+  onOpenSummary,
   onExport,
   onSaveOrder,
   onCancelOrder,
@@ -174,7 +185,7 @@ export function SidebarToolbar({
                 border: "1px solid transparent",
                 borderColor: contentSearchExpanded ? "var(--gray-a7)" : "transparent",
                 borderRadius: "max(var(--radius-2), var(--radius-full))",
-                background: contentSearchExpanded ? "var(--color-surface)" : "transparent",
+                background: contentSearchExpanded ? "var(--color-background)" : "transparent",
                 flex: contentSearchExpanded ? 1 : undefined,
                 minWidth: 0,
                 position: "relative",
@@ -199,6 +210,8 @@ export function SidebarToolbar({
               </ChapterSearchPopover>
               <IconButton
                 variant="ghost"
+                color="gray"
+                highContrast
                 size="2"
                 onClick={contentSearchExpanded ? undefined : handleContentSearchToggle}
                 style={{
@@ -232,6 +245,7 @@ export function SidebarToolbar({
                       border: "none",
                       outline: "none",
                       background: "transparent",
+                      fontFamily: "var(--app-font-family)",
                       fontSize: "var(--font-size-base)",
                       lineHeight: "var(--line-height-2)",
                       color: "var(--gray-12)",
@@ -249,6 +263,8 @@ export function SidebarToolbar({
                 <Tooltip content={t("writing.dragModeOn")}>
                   <IconButton
                     variant="ghost"
+                    color="gray"
+                    highContrast
                     size="2"
                     onClick={handleEnterDragMode}
                   >
@@ -277,8 +293,8 @@ export function SidebarToolbar({
                 <Tooltip content={t("writing.cancelOrder")}>
                   <IconButton
                     variant="ghost"
-                    size="2"
                     color="gray"
+                    size="2"
                     onClick={handleCancelDragMode}
                     disabled={isSavingOrder}
                   >
@@ -302,6 +318,8 @@ export function SidebarToolbar({
                 <Tooltip content={t("writing.newChapter")}>
                   <IconButton
                     variant="ghost"
+                    color="gray"
+                    highContrast
                     size="2"
                     onClick={handleCreate}
                   >
@@ -311,15 +329,33 @@ export function SidebarToolbar({
                 <Tooltip content={t("writing.newVolume")}>
                   <IconButton
                     variant="ghost"
+                    color="gray"
+                    highContrast
                     size="2"
                     onClick={handleCreateVolume}
                   >
                     <BookPlus size={16} />
                   </IconButton>
                 </Tooltip>
+                {onOpenSummary && (
+                  <Tooltip content={t("summary.openPanel")}>
+                    <IconButton
+                      variant="ghost"
+                      color="gray"
+                      highContrast
+                      size="2"
+                      aria-label={t("summary.openPanel")}
+                      onClick={onOpenSummary}
+                    >
+                      <Summary size={16} />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 <Tooltip content={t("writing.chapterExport.open")}>
                   <IconButton
                     variant="ghost"
+                    color="gray"
+                    highContrast
                     size="2"
                     onClick={onExport}
                   >

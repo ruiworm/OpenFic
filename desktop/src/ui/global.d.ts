@@ -10,6 +10,7 @@ import type {
   MigrateDataResult,
   PingInstanceResult,
   ReportErrorPayload,
+  SaveInstanceAppearanceRequest,
   SetupProgressEvent,
   StartupProgressEvent,
   UpdateState,
@@ -21,6 +22,7 @@ declare global {
     openficDesktop: {
       getConfig: () => Promise<DesktopConfig | null>;
       saveConfig: (config: DesktopConfig) => Promise<void>;
+      saveInstanceAppearance: (request: SaveInstanceAppearanceRequest) => Promise<void>;
       initializeApp: () => Promise<InitializeAppResult>;
       cancelStartup: () => Promise<void>;
       ensureInstanceSession: (partition: string) => Promise<void>;
@@ -36,7 +38,8 @@ declare global {
       selectOpenFile: () => Promise<string | null>;
       getDefaultDataDir: () => Promise<string>;
       getDataInfo: (instanceId: string) => Promise<DataInfo>;
-      inspectDataDir: (dataDir: string) => Promise<InspectDataDirResult>;
+      inspectDataDir: (dataDir: string, installDir?: string) => Promise<InspectDataDirResult>;
+      checkPathOverlap: (dataDir: string, installDir?: string) => Promise<boolean>;
       migrateData: (instanceId: string, newDataDir: string, deleteOldDir: boolean) => Promise<MigrateDataResult>;
       backupData: (instanceId: string, targetPath: string) => Promise<void>;
       restoreData: (instanceId: string, sourcePath: string) => Promise<void>;

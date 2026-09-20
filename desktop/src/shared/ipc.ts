@@ -1,8 +1,9 @@
-import type { DesktopConfig, DesktopInstance } from "./config.js";
+import type { DesktopConfig, DesktopInstance, DesktopInstanceAppearance } from "./config.js";
 
 export const IpcChannels = {
   getConfig: "config:get",
   saveConfig: "config:save",
+  saveInstanceAppearance: "instance:save-appearance",
   initializeApp: "app:initialize",
   cancelStartup: "app:cancel-startup",
   ensureInstanceSession: "app:ensure-instance-session",
@@ -43,6 +44,7 @@ export const IpcChannels = {
   getDefaultDataDir: "data:get-default-dir",
   getDataInfo: "data:get-info",
   inspectDataDir: "data:inspect-dir",
+  checkPathOverlap: "data:check-path-overlap",
   migrateData: "data:migrate",
   backupData: "data:backup",
   restoreData: "data:restore",
@@ -68,6 +70,10 @@ export interface SetupProgressEvent {
 
 export interface SaveConfigRequest {
   config: DesktopConfig;
+}
+
+export interface SaveInstanceAppearanceRequest extends DesktopInstanceAppearance {
+  instanceId: string;
 }
 
 export interface SaveZoomFactorRequest {
@@ -211,6 +217,8 @@ export interface DataInfo {
   dataDir: string;
   /** Whether the instance falls back to the default data location. */
   isDefaultLocation: boolean;
+  /** Whether the data directory overlaps an application or runtime installation directory. */
+  nestedWithInstallDir: boolean;
   hasData: boolean;
   entryCount: number;
   sizeBytes: number;
@@ -219,6 +227,8 @@ export interface DataInfo {
 export interface InspectDataDirResult {
   /** Whether the directory contains recognizable OpenFic data. */
   valid: boolean;
+  /** Whether the inspected directory overlaps an application or supplied installation directory. */
+  nestedWithInstallDir: boolean;
   hasData: boolean;
   entryCount: number;
   sizeBytes: number;
@@ -230,6 +240,12 @@ export interface GetDataInfoRequest {
 
 export interface InspectDataDirRequest {
   dataDir: string;
+  installDir?: string;
+}
+
+export interface CheckPathOverlapRequest {
+  dataDir: string;
+  installDir?: string;
 }
 
 export interface MigrateDataRequest {

@@ -167,6 +167,10 @@ const TOOL_DISPLAY_KEYS: Record<string, { name: string; description: string }> =
     name: "settings.agentTool.dispatchSubagent.name",
     description: "settings.agentTool.dispatchSubagent.description",
   },
+  list_subagents: {
+    name: "settings.agentTool.listSubagents.name",
+    description: "settings.agentTool.listSubagents.description",
+  },
   notify_subagent: {
     name: "settings.agentTool.notifySubagent.name",
     description: "settings.agentTool.notifySubagent.description",
@@ -182,6 +186,10 @@ const TOOL_DISPLAY_KEYS: Record<string, { name: string; description: string }> =
   reference_skill: {
     name: "settings.agentTool.referenceSkill.name",
     description: "settings.agentTool.referenceSkill.description",
+  },
+  web_fetch: {
+    name: "settings.agentTool.webFetch.name",
+    description: "settings.agentTool.webFetch.description",
   },
 };
 

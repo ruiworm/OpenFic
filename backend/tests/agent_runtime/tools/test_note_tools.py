@@ -64,6 +64,18 @@ def _make_category(
     return cat
 
 
+def test_build_category_path_returns_ancestor_titles_in_order() -> None:
+    from app.agent_runtime.tools.impls.note.refs import build_category_path
+
+    categories = [
+        _make_category(category_id="cat-root", title="大纲"),
+        _make_category(category_id="cat-volume", title="第一卷", parent_id="cat-root"),
+        _make_category(category_id="cat-note", title="细纲", parent_id="cat-volume"),
+    ]
+
+    assert build_category_path(categories, "cat-note") == ["大纲", "第一卷", "细纲"]
+
+
 async def test_read_note_rejects_hidden_note() -> None:
     from app.agent_runtime.tools.impls.note.read_note import ReadNoteTool
 
@@ -83,8 +95,8 @@ async def test_read_note_rejects_hidden_note() -> None:
             mock_session.close.assert_called_once()
 
     data = json.loads(result)
-    assert "error" in data
-    assert "已隐藏" in data["error"]
+    assert data["type"] == "fail"
+    assert "已隐藏" in data["message"]
 
 
 async def test_edit_note_rejects_locked_note() -> None:
@@ -114,8 +126,8 @@ async def test_edit_note_rejects_locked_note() -> None:
             mock_session.close.assert_called_once()
 
     data = json.loads(result)
-    assert "error" in data
-    assert "已锁定" in data["error"]
+    assert data["type"] == "fail"
+    assert "已锁定" in data["message"]
 
 
 async def test_edit_note_returns_success_and_diff_metadata() -> None:
@@ -244,8 +256,8 @@ async def test_delete_note_rejects_hidden_note() -> None:
             mock_session.close.assert_called_once()
 
     data = json.loads(result)
-    assert "error" in data
-    assert "已隐藏" in data["error"]
+    assert data["type"] == "fail"
+    assert "已隐藏" in data["message"]
 
 
 async def test_delete_note_rejects_locked_note() -> None:
@@ -267,8 +279,8 @@ async def test_delete_note_rejects_locked_note() -> None:
             mock_session.close.assert_called_once()
 
     data = json.loads(result)
-    assert "error" in data
-    assert "已锁定" in data["error"]
+    assert data["type"] == "fail"
+    assert "已锁定" in data["message"]
 
 
 async def test_delete_note_returns_success_and_diff_metadata() -> None:
@@ -305,6 +317,19 @@ async def test_delete_note_returns_success_and_diff_metadata() -> None:
                 "operation": "delete",
                 "note_id": "note-1",
                 "note_title": "测试笔记",
+                "sections": [
+                    {
+                        "type": "content",
+                        "lines": [
+                            {
+                                "type": "removed",
+                                "before_line_number": 1,
+                                "after_line_number": None,
+                                "text": "测试内容",
+                            }
+                        ],
+                    }
+                ],
             }
         },
     }
@@ -473,7 +498,7 @@ async def test_write_note_rejects_over_limit_content_without_creating() -> None:
             }
         )
 
-    assert "内容超出限制" in json.loads(result)["error"]
+    assert "内容超出限制" in json.loads(result)["message"]
     create_note.assert_not_awaited()
 
 
@@ -593,8 +618,8 @@ async def test_move_note_rejects_locked_note() -> None:
             mock_session.close.assert_called_once()
 
     data = json.loads(result)
-    assert "error" in data
-    assert "已锁定" in data["error"]
+    assert data["type"] == "fail"
+    assert "已锁定" in data["message"]
 
 
 async def test_move_note_returns_success_and_metadata() -> None:
@@ -645,6 +670,7 @@ async def test_move_note_returns_success_and_metadata() -> None:
                 "category_id": "cat-2",
                 "target_category_id": "cat-2",
                 "target_category_title": "目标分类",
+                "path": ["目标分类"],
             }
         },
     }
@@ -877,7 +903,7 @@ async def test_edit_note_category_rejects_duplicate_sibling_title() -> None:
                 {"category_ref": {"id": "cat-1"}, "new_title": "新分类"}
             )
 
-    assert json.loads(result)["error"] == "同级分类已存在同名标题: 新分类"
+    assert json.loads(result)["message"] == "同级分类已存在同名标题: 新分类"
     update_category.assert_not_awaited()
 
 
@@ -900,7 +926,7 @@ async def test_edit_note_category_rejects_category_from_another_project() -> Non
                 {"category_ref": {"id": "cat-1"}, "new_title": "新分类"}
             )
 
-    assert json.loads(result)["error"] == "分类不属于当前项目"
+    assert json.loads(result)["message"] == "分类不属于当前项目"
 
 
 async def test_delete_note_category_cascades_and_records_revisions() -> None:
@@ -1026,7 +1052,7 @@ async def test_delete_note_category_rejects_category_from_another_project() -> N
         ):
             result = await tool.ainvoke({"category_ref": {"id": "cat-1"}})
 
-    assert json.loads(result)["error"] == "分类不属于当前项目"
+    assert json.loads(result)["message"] == "分类不属于当前项目"
 
 
 def test_edit_note_input_rejects_empty_old_content() -> None:

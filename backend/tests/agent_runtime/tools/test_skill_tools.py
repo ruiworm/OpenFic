@@ -213,7 +213,32 @@ async def test_activate_skill_rejects_unauthorized_skill():
     ):
         result = await tool.ainvoke({"skill_name": "pdf-processing"})
 
-    assert "技能不在该智能体的可用列表中" in json.loads(result)["error"]
+    assert "技能不在该智能体的可用列表中" in json.loads(result)["message"]
+
+
+@pytest.mark.asyncio
+async def test_activate_skill_accepts_explicitly_referenced_global_skill():
+    from app.agent_runtime.tools.impls.skill.skill import _resolve_authorized_skill
+
+    skill = _skill(id="skill-explicit", name="显式引用技能")
+    state = _make_state()
+    state["referenced_skill_ids"] = [skill.id]
+    session = AsyncMock()
+
+    with patch(
+        "app.agent_runtime.tools.impls.skill.skill.load_agent_definition",
+        AsyncMock(return_value=_definition([])),
+    ), patch(
+        "app.agent_runtime.tools.impls.skill.skill.skill_service.list_enabled_skills_by_ids",
+        AsyncMock(return_value=[]),
+    ), patch(
+        "app.agent_runtime.tools.impls.skill.skill.skill_service.list_enabled_skills",
+        AsyncMock(return_value=[skill]),
+        create=True,
+    ):
+        resolved = await _resolve_authorized_skill(session, state, skill.name)
+
+    assert resolved is skill
 
 
 @pytest.mark.asyncio
@@ -260,7 +285,7 @@ async def test_activate_skill_rejects_disabled_skill():
     ):
         result = await tool.ainvoke({"skill_name": "pdf-processing"})
 
-    assert "技能不在该智能体的可用列表中" in json.loads(result)["error"]
+    assert "技能不在该智能体的可用列表中" in json.loads(result)["message"]
 
 
 @pytest.mark.asyncio
@@ -299,7 +324,7 @@ async def test_reference_skill_rejects_unknown_reference():
             {"skill_name": "pdf-processing", "reference_name": "不存在"}
         )
 
-    assert "参考文档不存在" in json.loads(result)["error"]
+    assert "参考文档不存在" in json.loads(result)["message"]
 
 
 def test_load_builtin_skills_caches_until_skill_files_change(tmp_path, monkeypatch):

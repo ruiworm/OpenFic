@@ -193,7 +193,7 @@
 
 .streaming-markdown [data-streamdown="link"],
 .streaming-markdown a {
-  color: #0969da;
+  color: var(--theme-link);
   font: inherit;
   font-weight: 600;
   text-decoration: underline;
@@ -213,45 +213,8 @@
 
 .streaming-markdown [data-streamdown="link"]:hover,
 .streaming-markdown a:hover {
-  color: #0550ae;
+  color: var(--theme-link-hover);
   text-decoration-color: currentColor;
-}
-
-.streaming-markdown-link-dialog-url {
-  max-height: 120px;
-  margin-top: 16px;
-  padding: 10px 12px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--gray-a2);
-  color: var(--gray-12);
-  font-family: var(--code-font-family, ui-monospace, monospace);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.streaming-markdown-link-dialog-actions {
-  align-items: center;
-}
-
-.streaming-markdown-link-dialog-copy {
-  margin-right: auto;
-}
-
-@media (max-width: 520px) {
-  .streaming-markdown-link-dialog-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .streaming-markdown-link-dialog-copy {
-    margin-right: 0;
-  }
-
-  .streaming-markdown-link-dialog-actions > button {
-    width: 100%;
-  }
 }
 
 .streaming-markdown [data-streamdown="inline-code"],
@@ -337,7 +300,7 @@
   overflow: auto;
   border: 1px solid var(--gray-a4);
   border-radius: 7px;
-  background: var(--color-panel, white);
+  background: var(--color-panel-solid);
 }
 
 .streaming-markdown [data-streamdown="mermaid"] {
@@ -366,7 +329,7 @@
   padding: 4px;
   border: 1px solid var(--gray-a4);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-panel, white) 88%, transparent);
+  background: color-mix(in srgb, var(--color-panel-solid) 88%, transparent);
   box-shadow: 0 6px 20px rgb(0 0 0 / 10%);
   backdrop-filter: blur(8px);
 }
@@ -524,7 +487,7 @@
   overflow-x: auto;
   border: 1px solid var(--gray-a4);
   border-radius: 7px;
-  background: var(--color-panel, white);
+  background: var(--color-panel-solid);
 }
 
 .streaming-markdown [data-streamdown="table"],

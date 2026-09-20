@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.editor_content_limits import validate_editor_content
@@ -260,7 +261,7 @@ async def list_chapters(
         raise NotFoundError(f"项目不存在: {project_id}")
 
     volumes = await volume_repo.list_by_project(session, project_id)
-    chapters = await chapter_repo.list_by_project(session, project_id)
+    chapters = await chapter_repo.list_metadata_by_project(session, project_id)
     chapters_by_volume: dict[str, list[Chapter]] = {volume.id: [] for volume in volumes}
     for chapter in chapters:
         chapters_by_volume.setdefault(chapter.volume_id, []).append(chapter)
@@ -531,7 +532,7 @@ async def delete_chapter(
     project_id = chapter.project_id
     volume_id = chapter.volume_id
     deleted_volume_order = chapter.order
-    chapters = await chapter_repo.list_by_project(session, project_id)
+    chapters = await chapter_repo.list_metadata_by_project(session, project_id)
     volumes = await volume_repo.list_by_project(session, project_id)
     deleted_global_order = global_order_index(chapters, volumes)[chapter_id]
     old_title = chapter.title
@@ -596,6 +597,66 @@ async def delete_chapter(
     await _update_project_stats(session, project_id)
 
 
+async def delete_chapters_in_volume(session: AsyncSession, volume_id: str) -> None:
+    """批量删除卷内章节，避免逐章重复扫描项目和重算统计。"""
+    chapters = await chapter_repo.list_by_volume(session, volume_id)
+    if not chapters:
+        return
+
+    project_id = chapters[0].project_id
+    project_chapters = await chapter_repo.list_metadata_by_project(session, project_id)
+    volumes = await volume_repo.list_by_project(session, project_id)
+    global_orders = global_order_index(project_chapters, volumes)
+    deleted_global_orders = [
+        global_orders[chapter.id]
+        for chapter in chapters
+        if chapter.id in global_orders
+    ]
+
+    from app.retrieval.chapter_index import ChapterIndexIntegrationService
+    from app.retrieval.index_status import schedule_emit_index_status
+
+    index_service = ChapterIndexIntegrationService()
+    for chapter in chapters:
+        await index_service.delete_chapter_index(session, chapter)
+    schedule_emit_index_status(session, project_id)
+
+    await chapter_summary_repo.delete_by_chapter_ids(
+        session, [chapter.id for chapter in chapters]
+    )
+    if deleted_global_orders:
+        long_term_summaries = (
+            await chapter_summary_repo.list_long_term_summaries_by_project(
+                session, project_id
+            )
+        )
+        first_deleted_order = min(deleted_global_orders)
+        affected_ranges = [
+            (summary.start_order, summary.end_order)
+            for summary in long_term_summaries
+            if summary.start_order is not None
+            and summary.end_order is not None
+            and summary.end_order >= first_deleted_order
+        ]
+        await chapter_summary_repo.delete_long_term_summaries_by_ranges(
+            session, project_id, affected_ranges
+        )
+
+    await chapter_repo.delete_by_volume(session, volume_id)
+    for chapter in chapters:
+        await writing_activity_service.record_activity(
+            session,
+            project_id=project_id,
+            chapter_id=chapter.id,
+            chapter_title=chapter.title,
+            source="user",
+            operation="delete",
+            old_word_count=chapter.word_count,
+            new_word_count=0,
+        )
+    await _update_project_stats(session, project_id)
+
+
 async def reorder_chapters(
     session: AsyncSession,
     volume_id: str,
@@ -616,7 +677,7 @@ async def reorder_chapters(
         NotFoundError: 章节不存在或不属于指定卷。
         ValueError: 章节数量不匹配。
     """
-    chapters = await chapter_repo.get_by_ids(session, chapter_ids)
+    chapters = await chapter_repo.get_metadata_by_ids(session, chapter_ids)
     chapter_map = {c.id: c for c in chapters}
 
     if len(chapters) != len(chapter_ids):
@@ -627,13 +688,20 @@ async def reorder_chapters(
         if chapter.volume_id != volume_id:
             raise ValueError(f"章节 {chapter.id} 不属于卷 {volume_id}")
 
-    orders: dict[str, int] = {}
-    for idx, cid in enumerate(chapter_ids, start=1):
-        orders[cid] = idx
+    orders = {
+        chapter_id: new_order
+        for new_order, chapter_id in enumerate(chapter_ids, start=1)
+        if chapter_map[chapter_id].order != new_order
+    }
 
-    await chapter_repo.update_orders(session, orders)
+    updated_at = await chapter_repo.update_orders(session, orders)
+    if updated_at is not None:
+        for chapter_id, chapter_order in orders.items():
+            chapter = chapter_map[chapter_id]
+            set_committed_value(chapter, "order", chapter_order)
+            set_committed_value(chapter, "updated_at", updated_at)
 
-    updated_chapters = await chapter_repo.get_by_ids(session, chapter_ids)
+    updated_chapters = chapters
     order_lookup = {cid: idx for idx, cid in enumerate(chapter_ids)}
     updated_chapters.sort(key=lambda c: order_lookup.get(c.id, 0))
     return updated_chapters

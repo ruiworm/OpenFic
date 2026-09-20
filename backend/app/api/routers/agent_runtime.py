@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import TypeGuard, cast
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -32,6 +33,7 @@ from app.agent_runtime.persistence.child_runs import (
     list_active_child_runs,
     list_child_runs_for_parent,
 )
+from app.agent_runtime.session_changes import load_agent_session_changes
 from app.agent_runtime.persistence.child_runs import get_child_run_agent_number
 from app.agent_runtime.persistence.task_projection import (
     load_task_messages_for_agent_session,
@@ -57,6 +59,7 @@ from app.api.schemas.agent import (
     AgentCancelResponse,
     AgentAttachmentResponse,
     AgentCompactionResponse,
+    AgentSessionChangesResponse,
     AgentForkRequest,
     AgentForkResponse,
     AgentPendingMessageResponse,
@@ -78,6 +81,7 @@ from app.core.encryption import EncryptionService
 from app.core.errors import NotFoundError
 from app.core.ids import generate_id
 from app.models.repos import model_provider_repo, model_repo
+from app.models.services.model_provider_service import ModelProviderService
 from app.settings import settings
 from app.background.jobs.session_title_jobs import enqueue_session_title_job
 from app.background.jobs import service as background_service
@@ -100,43 +104,46 @@ TOOL_DISPLAY_ORDER = {
     "ask_user": 0,
     "write_plan": 1,
     "dispatch_subagent": 2,
-    "notify_subagent": 3,
-    "recycle_subagent": 4,
-    "list_volumes": 5,
-    "list_chapters": 6,
-    "read_chapter": 7,
-    "search_chapters": 8,
-    "update_index": 9,
-    "read_chapter_summaries": 10,
-    "read_range_summaries": 11,
-    "write_chapter": 12,
-    "edit_chapter": 13,
-    "delete_chapter": 14,
-    "create_volume": 15,
-    "edit_volume": 16,
-    "delete_volume": 17,
-    "move_chapter_to_volume": 18,
-    "list_notes": 19,
-    "read_note": 20,
-    "write_note": 21,
-    "edit_note": 22,
-    "delete_note": 23,
-    "move_note": 24,
-    "create_note_category": 25,
-    "edit_note_category": 26,
-    "delete_note_category": 27,
-    "list_characters": 28,
-    "read_character": 29,
-    "create_character": 30,
-    "edit_character": 31,
-    "delete_character": 32,
-    "list_world_entries": 33,
-    "read_world_entry": 34,
-    "create_world_entry": 35,
-    "edit_world_entry": 36,
-    "delete_world_entry": 37,
-    "activate_skill": 38,
-    "reference_skill": 39,
+    "list_subagents": 3,
+    "notify_subagent": 4,
+    "recycle_subagent": 5,
+    "list_volumes": 6,
+    "list_chapters": 7,
+    "read_chapter": 8,
+    "search_chapters": 9,
+    "update_index": 10,
+    "read_chapter_summaries": 11,
+    "read_range_summaries": 12,
+    "write_chapter": 13,
+    "edit_chapter": 14,
+    "delete_chapter": 15,
+    "create_volume": 16,
+    "edit_volume": 17,
+    "delete_volume": 18,
+    "move_chapter_to_volume": 19,
+    "list_notes": 20,
+    "read_note": 21,
+    "write_note": 22,
+    "edit_note": 23,
+    "delete_note": 24,
+    "move_note": 25,
+    "create_note_category": 26,
+    "edit_note_category": 27,
+    "delete_note_category": 28,
+    "list_characters": 29,
+    "read_character": 30,
+    "create_character": 31,
+    "edit_character": 32,
+    "delete_character": 33,
+    "list_world_entries": 34,
+    "read_world_entry": 35,
+    "create_world_entry": 36,
+    "edit_world_entry": 37,
+    "delete_world_entry": 38,
+    "activate_skill": 39,
+    "reference_skill": 40,
+    "web_search": 41,
+    "web_fetch": 42,
 }
 
 def _build_default_agent_session_title(created_at: datetime) -> str:
@@ -358,6 +365,32 @@ async def _ensure_agent_session_resumable(
         )
 
 
+async def _checkpoint_has_pending_interrupt(session_id: str, revision_id: str) -> bool:
+    checkpointer = await get_checkpointer()
+    checkpoint = await checkpointer.aget_tuple(
+        {"configurable": {"thread_id": session_id}}
+    )
+    checkpoint_data = getattr(checkpoint, "checkpoint", None) if checkpoint is not None else None
+    channel_values = (
+        checkpoint_data.get("channel_values")
+        if isinstance(checkpoint_data, dict)
+        else None
+    )
+    if not isinstance(channel_values, dict) or channel_values.get("current_revision_id") != revision_id:
+        return False
+    return (
+        any(
+            len(pending_write) >= 3
+            and pending_write[1] == "__interrupt__"
+            and isinstance(pending_write[2], list)
+            and bool(pending_write[2])
+            for pending_write in checkpoint.pending_writes or []
+        )
+        if checkpoint is not None
+        else False
+    )
+
+
 async def _claim_agent_session_resume(
     session: AsyncSession,
     session_id: str,
@@ -379,6 +412,14 @@ async def _claim_agent_session_resume(
         return revision_id, True
 
     revision = await revision_repo.get_by_id(session, revision_id)
+    if revision is not None and revision.status == "failed":
+        if await _checkpoint_has_pending_interrupt(session_id, revision_id):
+            if await revision_repo.recover_failed_revision(session, revision_id):
+                await session.commit()
+                if await revision_repo.claim_interrupted_revision(session, revision_id):
+                    await session.commit()
+                    return revision_id, True
+                revision = await revision_repo.get_by_id(session, revision_id)
     if revision is not None and revision.status == "cancelled":
         await _ensure_agent_session_resumable(session, session_id)
     if allow_active and revision is not None and revision.status == "active":
@@ -418,7 +459,11 @@ async def _release_agent_session_resume_claim(
 
 
 async def _build_model_config(
-    model, provider, api_key: str, reasoning_effort: str | None = None
+    model,
+    provider,
+    api_key: str,
+    reasoning_effort: str | None = None,
+    custom_headers: dict[str, str] | None = None,
 ) -> dict:
     model_config = {
         "model_record_id": model.id,
@@ -443,6 +488,8 @@ async def _build_model_config(
     }
     if reasoning_effort and reasoning_effort != "off":
         model_config["reasoning_effort"] = reasoning_effort
+    if custom_headers:
+        model_config["custom_headers"] = custom_headers
     return model_config
 
 
@@ -483,7 +530,16 @@ async def _resolve_model_config(
     except Exception as exc:
         raise ValueError("API密钥解密失败") from exc
 
-    return await _build_model_config(model, provider, api_key, reasoning_effort)
+    custom_headers = ModelProviderService(
+        encryption_service
+    ).get_decrypted_custom_headers(provider)
+    return await _build_model_config(
+        model,
+        provider,
+        api_key,
+        reasoning_effort,
+        custom_headers,
+    )
 
 
 async def _resolve_legacy_model_config(
@@ -1349,6 +1405,22 @@ async def get_agent_session_state(
         is_running=is_running,
         interrupts=interrupts,
     )
+
+
+@router.get(
+    "/sessions/{session_id}/changes",
+    response_model=AgentSessionChangesResponse,
+)
+async def get_agent_session_changes(
+    session_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> AgentSessionChangesResponse | JSONResponse:
+    try:
+        await task_service.get_task_by_agent_session_id(session, session_id)
+        changes = await load_agent_session_changes(session, session_id)
+        return JSONResponse(content=changes.to_payload())
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get(

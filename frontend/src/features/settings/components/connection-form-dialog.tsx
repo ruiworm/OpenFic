@@ -1,8 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog, Flex, Button, Text, TextField, Box } from "@radix-ui/themes";
-import { Check, X } from "lucide-react";
+import { Check, Plus, Trash2, X, Component } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useForm, Controller, useWatch } from "react-hook-form";
+import { useFieldArray, useForm, Controller, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
@@ -11,7 +11,9 @@ import type { ModelProvider, ModelProviderCatalogProvider } from "@/lib/model.ty
 
 import { validateProvider } from "../lib/model-api";
 import { ProviderIcon } from "../lib/provider-icons";
-import { getProviderUrl } from "../lib/provider-utils";
+import { getProviderUrl, isCustomProviderType } from "../lib/provider-utils";
+
+import "./connection-form-dialog.css";
 
 function requiresProviderUrl(
   providerType: string,
@@ -25,9 +27,26 @@ const connectionSchema = z.object({
   url: z.string().optional(),
   apiKey: z.string().optional(),
   providerType: z.string().min(1, "providerTypeRequired"),
+  customHeaders: z.array(
+    z.object({
+      key: z.string(),
+      value: z.string(),
+    }),
+  ),
 });
 
 type ConnectionFormData = z.infer<typeof connectionSchema>;
+
+const MASKED_CUSTOM_HEADER_VALUE = "••••••••";
+
+function serializeCustomHeaders(headers: ConnectionFormData["customHeaders"]) {
+  return headers
+    .filter((header) => header.key.trim())
+    .map((header) => ({
+      key: header.key,
+      value: header.value === MASKED_CUSTOM_HEADER_VALUE ? "" : header.value,
+    }));
+}
 
 interface ConnectionFormDialogProps {
   open: boolean;
@@ -57,6 +76,29 @@ export function ConnectionFormDialog({
     "idle" | "validating" | "success" | "error"
   >("idle");
 
+  const initialFormValues = useMemo<ConnectionFormData>(
+    () =>
+      connection
+        ? {
+            name: connection.name || "",
+            url: connection.url || "",
+            apiKey: "",
+            providerType: connection.providerType || "",
+            customHeaders: (connection.customHeaderNames || []).map((key) => ({
+              key,
+              value: MASKED_CUSTOM_HEADER_VALUE,
+            })),
+          }
+        : {
+            name: "",
+            url: "",
+            apiKey: "",
+            providerType: "",
+            customHeaders: [],
+          },
+    [connection],
+  );
+
   const {
     control,
     handleSubmit,
@@ -66,19 +108,16 @@ export function ConnectionFormDialog({
     setValue,
   } = useForm<ConnectionFormData>({
     resolver: zodResolver(connectionSchema),
-    values: connection
-      ? {
-          name: connection.name || "",
-          url: connection.url || "",
-          apiKey: "",
-          providerType: connection.providerType || "",
-        }
-      : {
-          name: "",
-          url: "",
-          apiKey: "",
-          providerType: "",
-        },
+    values: initialFormValues,
+  });
+
+  const {
+    fields: customHeaderFields,
+    append,
+    remove,
+  } = useFieldArray({
+    control,
+    name: "customHeaders",
   });
 
   const providerType = useWatch({ control, name: "providerType" });
@@ -88,6 +127,7 @@ export function ConnectionFormDialog({
     () => catalogProviders?.find((provider) => provider.providerType === providerType),
     [catalogProviders, providerType],
   );
+  const providerIconPath = selectedCatalogProvider?.iconPath || connection?.iconPath;
 
   // 切换到需要用户提供地址的提供商时，只清空一次 URL。
   useEffect(() => {
@@ -163,6 +203,9 @@ export function ConnectionFormDialog({
         provider_type: formData.providerType,
         url: validateUrl,
         api_key: formData.apiKey || "", // 编辑时可以为空
+        custom_headers: isCustomProviderType(formData.providerType)
+          ? serializeCustomHeaders(formData.customHeaders)
+          : [],
       });
 
       if (result.success) {
@@ -178,6 +221,10 @@ export function ConnectionFormDialog({
   // 提交表单
   const onFormSubmit = useCallback(
     async (data: ConnectionFormData) => {
+      if (!isEditing && !data.apiKey?.trim()) {
+        return;
+      }
+
       const formData = new FormData();
 
       formData.append("name", data.name || "");
@@ -206,11 +253,18 @@ export function ConnectionFormDialog({
         formData.append("api_key", data.apiKey);
       }
 
+      if (isCustomProviderType(data.providerType)) {
+        formData.append(
+          "custom_headers",
+          JSON.stringify(serializeCustomHeaders(data.customHeaders)),
+        );
+      }
+
       await onSubmit(formData);
       reset();
       setValidationStatus("idle");
     },
-    [catalogProviders, onSubmit, reset],
+    [catalogProviders, isEditing, onSubmit, reset],
   );
 
   const handleOpenChange = useCallback(
@@ -235,7 +289,10 @@ export function ConnectionFormDialog({
       open={open}
       onOpenChange={handleOpenChange}
     >
-      <Dialog.Content maxWidth="500px">
+      <Dialog.Content
+        maxWidth="500px"
+        className="settings-background-panel"
+      >
         <Dialog.Title>
           {isEditing ? t("connections.editConnection") : t("connections.createConnection")}
         </Dialog.Title>
@@ -262,10 +319,17 @@ export function ConnectionFormDialog({
                   background: "var(--gray-a3)",
                 }}
               >
-                <ProviderIcon
-                  iconPath={selectedCatalogProvider?.iconPath || connection?.iconPath}
-                  size={40}
-                />
+                {providerIconPath ? (
+                  <ProviderIcon
+                    iconPath={providerIconPath}
+                    size={40}
+                  />
+                ) : isCustomProviderType(providerType) ? (
+                  <Component
+                    size={40}
+                    aria-hidden="true"
+                  />
+                ) : null}
               </Box>
 
               {/* 右侧：备注名称和提供商类型 */}
@@ -460,6 +524,88 @@ export function ConnectionFormDialog({
               )}
             </Flex>
 
+            {isCustomProviderType(providerType) && (
+              <Flex
+                direction="column"
+                gap="2"
+              >
+                <Flex
+                  align="center"
+                  justify="between"
+                >
+                  <Text
+                    size="2"
+                    weight="medium"
+                    color="gray"
+                  >
+                    {t("connections.customHeaders")}
+                  </Text>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="2"
+                    className="connection-form-dialog__header-action"
+                    aria-label={t("connections.addCustomHeader")}
+                    onClick={() => append({ key: "", value: "" })}
+                    disabled={isAgentSettingsLocked}
+                  >
+                    <Plus size={16} />
+                  </Button>
+                </Flex>
+                <Box className="connection-form-dialog__headers-list">
+                  <Flex
+                    direction="column"
+                    gap="2"
+                  >
+                    {customHeaderFields.map((field, index) => (
+                      <Flex
+                        key={field.id}
+                        className="connection-form-dialog__header-row"
+                        align="center"
+                        gap="2"
+                      >
+                        <Controller
+                          name={`customHeaders.${index}.key`}
+                          control={control}
+                          render={({ field: inputField }) => (
+                            <TextField.Root
+                              {...inputField}
+                              className="connection-form-dialog__header-input"
+                              placeholder={t("connections.customHeaderKeyPlaceholder")}
+                              disabled={isAgentSettingsLocked}
+                            />
+                          )}
+                        />
+                        <Controller
+                          name={`customHeaders.${index}.value`}
+                          control={control}
+                          render={({ field: inputField }) => (
+                            <TextField.Root
+                              {...inputField}
+                              className="connection-form-dialog__header-input"
+                              placeholder={t("connections.customHeaderValuePlaceholder")}
+                              disabled={isAgentSettingsLocked}
+                            />
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="2"
+                          className="connection-form-dialog__header-action connection-form-dialog__header-action--delete"
+                          aria-label={t("connections.removeCustomHeader")}
+                          onClick={() => remove(index)}
+                          disabled={isAgentSettingsLocked}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </Flex>
+                    ))}
+                  </Flex>
+                </Box>
+              </Flex>
+            )}
+
             {/* 操作按钮 */}
             <Flex
               gap="3"
@@ -514,9 +660,7 @@ export function ConnectionFormDialog({
                 <Button
                   type="submit"
                   disabled={
-                    isAgentSettingsLocked ||
-                    isSubmitting ||
-                    (!isEditing && validationStatus !== "success")
+                    isAgentSettingsLocked || isSubmitting || (!isEditing && !apiKey?.trim())
                   }
                 >
                   {isSubmitting ? <Spinner size={18} /> : null}

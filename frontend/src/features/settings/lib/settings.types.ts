@@ -5,12 +5,12 @@
  */
 
 import type { IndexAutoStrategy, IndexMode } from "@/lib/index-status";
+import type { ThemeConfig, ThemeConfigResponse, ThemeMode, ThemePresetId } from "@/lib/theme";
+
+export type { ThemeMode } from "@/lib/theme";
 
 /** 支持的语言代码 */
 export type LanguageCode = "zh-CN" | "en";
-
-/** 支持的主题 */
-export type ThemeMode = "light" | "dark";
 
 export type AgentToolPermissionMode = "allow" | "ask" | "deny";
 
@@ -28,12 +28,24 @@ export interface AgentToolMetadata {
 export interface Settings {
   language: LanguageCode;
   theme: ThemeMode;
+  themePreset: ThemePresetId;
+  lightThemePreset: ThemePresetId;
+  darkThemePreset: ThemePresetId;
+  themeConfig: ThemeConfig;
   fontFamily: string;
   codeFontFamily: string;
   baseFontSize: number;
   editorFontSize: number;
   defaultModel: string;
   lightModel: string;
+  summaryModel: string;
+  summaryAutoGenerateChapter: boolean;
+  summaryAutoGenerateLongTerm: boolean;
+  summaryMinChapterWordCount: number;
+  summaryBatchSize: number;
+  summaryLongTermInterval: number;
+  summaryChapterTargetLength: number;
+  summaryLongTermTargetLength: number;
   defaultEmbeddingModel: string;
   indexMode: IndexMode;
   indexEnabledProjects: string[];
@@ -50,18 +62,31 @@ export interface Settings {
   editorAutoIndent: boolean;
   editorAutoConvertPunctuation: boolean;
   editorAutoPairSymbols: boolean;
+  editorShowLineNumbers: boolean;
 }
 
 /** 设置响应（后端格式） */
 export interface SettingsResponse {
   language: string;
   theme: string;
+  theme_preset?: string;
+  light_theme_preset?: string;
+  dark_theme_preset?: string;
+  theme_config?: ThemeConfigResponse;
   font_family: string;
   code_font_family?: string;
   base_font_size?: number;
   editor_font_size?: number;
   default_model: string;
   light_model: string;
+  summary_model: string;
+  summary_auto_generate_chapter: boolean;
+  summary_auto_generate_long_term: boolean;
+  summary_min_chapter_word_count: number;
+  summary_batch_size: number;
+  summary_long_term_interval: number;
+  summary_chapter_target_length: number;
+  summary_long_term_target_length: number;
   default_embedding_model: string;
   index_mode: IndexMode;
   index_enabled_projects: string[];
@@ -81,18 +106,32 @@ export interface SettingsResponse {
   editor_auto_indent?: boolean;
   editor_auto_convert_punctuation?: boolean;
   editor_auto_pair_symbols?: boolean;
+  editor_show_line_numbers?: boolean;
 }
 
 /** 设置更新请求 */
 export interface SettingsUpdateRequest {
   language?: string;
   theme?: string;
+  theme_preset?: string;
+  light_theme_preset?: string;
+  dark_theme_preset?: string;
+  theme_config?: ThemeConfigResponse;
   font_family?: string;
   code_font_family?: string;
   base_font_size?: number;
   editor_font_size?: number;
   default_model?: string;
   light_model?: string;
+  summary_model?: string;
+  summary_auto_generate_chapter?: boolean;
+  summary_auto_generate_long_term?: boolean;
+  summary_min_chapter_word_count?: number;
+  summary_batch_size?: number;
+  summary_long_term_interval?: number;
+  summary_chapter_target_length?: number;
+  summary_long_term_target_length?: number;
+  confirm_summary_range_invalidation?: boolean;
   default_embedding_model?: string;
   index_mode?: IndexMode;
   index_enabled_projects?: string[];
@@ -112,6 +151,7 @@ export interface SettingsUpdateRequest {
   editor_auto_indent?: boolean;
   editor_auto_convert_punctuation?: boolean;
   editor_auto_pair_symbols?: boolean;
+  editor_show_line_numbers?: boolean;
 }
 
 export interface AuditDetailsStorage {

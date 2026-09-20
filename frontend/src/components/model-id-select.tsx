@@ -56,6 +56,7 @@ interface ModelIdSelectProps {
   triggerPrefix?: ReactNode;
   hideTriggerChevron?: boolean;
   triggerClassName?: string;
+  contentClassName?: string;
 }
 
 export function getModelValue(model: ModelIdSelectOption): string {
@@ -159,6 +160,7 @@ export function ModelIdSelect({
   triggerPrefix,
   hideTriggerChevron = false,
   triggerClassName,
+  contentClassName,
 }: ModelIdSelectProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -172,7 +174,7 @@ export function ModelIdSelect({
   const modelNameSize = compact ? "1" : "2";
   const labelSize = compact ? "1" : "2";
   const showSearchBox = !compact || models.length >= 8;
-  const scrollAreaHeight = compact ? "auto" : 300;
+  const scrollAreaHeight = compact ? "min(300px, calc(100dvh - 104px))" : 300;
   const placeholderHeight = compact ? "auto" : 200;
 
   const selectedModel = useMemo(
@@ -352,6 +354,7 @@ export function ModelIdSelect({
       <Popover.Trigger>{trigger}</Popover.Trigger>
 
       <Popover.Content
+        className={contentClassName}
         style={{
           width: popoverWidth,
           minWidth: popoverWidth,
@@ -384,6 +387,8 @@ export function ModelIdSelect({
                   <IconButton
                     size="1"
                     variant="soft"
+                    color="gray"
+                    highContrast
                     onClick={onRefresh}
                     disabled={refreshDisabled || !onRefresh || isRefreshing}
                     aria-label={t("models.fetchRemoteModels")}
@@ -396,7 +401,10 @@ export function ModelIdSelect({
             </Box>
           ) : null}
 
-          <ScrollArea style={{ height: scrollAreaHeight }}>
+          <ScrollArea
+            scrollbars="vertical"
+            style={{ height: scrollAreaHeight }}
+          >
             {isLoading || (open && !isListReady) ? (
               <Flex
                 align="center"
@@ -580,6 +588,7 @@ export function ModelIdSelect({
                       <Flex
                         align="center"
                         gap={compact ? "1" : "2"}
+                        style={{ minWidth: 0 }}
                       >
                         {compact ? null : (
                           <ProviderIcon
@@ -596,11 +605,12 @@ export function ModelIdSelect({
                             align="start"
                             justify="between"
                             gap="2"
+                            style={{ minWidth: 0 }}
                           >
                             <Flex
                               align="center"
                               gap="1"
-                              style={{ minWidth: 0 }}
+                              style={{ minWidth: 0, flex: "1 1 auto" }}
                             >
                               {compact ? (
                                 <ProviderIcon
@@ -610,9 +620,11 @@ export function ModelIdSelect({
                               ) : null}
                               <Text
                                 size={modelNameSize}
+                                truncate
                                 weight="medium"
                                 style={{
                                   minWidth: 0,
+                                  flex: "1 1 auto",
                                   color: showToolCallWarning ? "#c64545" : undefined,
                                 }}
                               >
