@@ -1,4 +1,5 @@
 import { SegmentedControl } from "@radix-ui/themes";
+import { BookOpen, FileText, Bookmark } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useWritingStore } from "../store/use-writing-store";
@@ -42,8 +43,9 @@ export function WritingSidebar({
     >
       <div
         style={{
-          padding: compact ? "8px 8px" : "12px 12px",
+          padding: compact ? "8px 8px" : "10px 12px",
           borderBottom: "1px solid var(--gray-a4)",
+          background: "color-mix(in srgb, var(--color-background) 94%, transparent)",
         }}
       >
         <SegmentedControl.Root
@@ -53,12 +55,25 @@ export function WritingSidebar({
           }
           size="2"
           className="writing-sidebar-segmented-control"
-          style={{ width: "100%" }}
+          style={{ width: "100%", borderRadius: "8px" }}
         >
-          <SegmentedControl.Item value="chapters">{t("writing.chapters")}</SegmentedControl.Item>
-          <SegmentedControl.Item value="notes">{t("writing.notes")}</SegmentedControl.Item>
+          <SegmentedControl.Item value="chapters">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <BookOpen size={13} />
+              {t("writing.chapters")}
+            </span>
+          </SegmentedControl.Item>
+          <SegmentedControl.Item value="notes">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <FileText size={13} />
+              {t("writing.notes")}
+            </span>
+          </SegmentedControl.Item>
           <SegmentedControl.Item value="foreshadowings">
-            {t("writing.foreshadowings", "伏笔")}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Bookmark size={13} />
+              {t("writing.foreshadowings", "伏笔")}
+            </span>
           </SegmentedControl.Item>
         </SegmentedControl.Root>
       </div>

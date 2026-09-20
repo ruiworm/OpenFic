@@ -1,41 +1,79 @@
-.sidebar-brand-logo {
-  display: block;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  background-color: var(--gray-11);
-  mask: url("/openfic.svg") center / contain no-repeat;
-  -webkit-mask: url("/openfic.svg") center / contain no-repeat;
-}
-
-.sidebar-brand-collapsed,
-.sidebar-brand-wordmark-wrapper {
+.sidebar-brand-emblem {
   display: flex;
   align-items: center;
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  flex-shrink: 0;
+  user-select: none;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
 }
 
 .sidebar-brand-collapsed {
   width: 40px;
   height: 40px;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .sidebar-brand-wordmark-wrapper {
   box-sizing: border-box;
+  position: absolute;
+  top: 0;
   left: 40px;
   height: 40px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
 }
 
-.sidebar-brand-wordmark {
-  display: block;
-  width: 77px;
-  height: 24px;
-  flex: 0 0 auto;
-  background-color: var(--gray-11);
-  mask: url("/brand.svg") -28.12px center / 108.4px 24px no-repeat;
-  -webkit-mask: url("/brand.svg") -28.12px center / 108.4px 24px no-repeat;
+.sidebar-brand-title-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 2px;
+}
+
+.sidebar-brand-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--gray-12);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sidebar-brand-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(236, 72, 153, 0.18));
+  color: var(--accent-11, #818cf8);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  line-height: 1.2;
+}
+
+.sidebar-brand-subtitle {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--gray-10);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  margin-top: 1px;
 }

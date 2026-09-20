@@ -34,6 +34,23 @@
   --theme-accent-hover: var(--accent-10);
   --theme-link: var(--accent-9);
   --theme-link-hover: var(--accent-10);
+  --book-spine-gradient: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.32) 0%,
+    rgba(255, 255, 255, 0.15) 3.5%,
+    rgba(0, 0, 0, 0.12) 7%,
+    transparent 14%
+  );
+  --book-edge-highlight: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.18) 0%,
+    transparent 100%
+  );
+  --book-card-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+  --book-card-hover-shadow: 0 20px 38px -10px rgba(0, 0, 0, 0.22), 0 8px 16px -4px rgba(0, 0, 0, 0.12);
+  --glass-surface: color-mix(in srgb, var(--color-background) 82%, transparent);
+  --glass-border: var(--gray-a4);
+  --glass-panel: color-mix(in srgb, var(--theme-panel-background) 88%, transparent);
   font-family: var(--app-font-family);
   line-height: 1.5;
   font-weight: 400;

@@ -161,8 +161,14 @@ export function DeconstructionReportView({
               {/* 核心杀手级功能：一键转化为新书 */}
               <Button
                 size="2"
-                color="accent"
-                variant="solid"
+                style={{
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                }}
                 onClick={onOpenCreateProject}
                 disabled={isStreaming}
               >
@@ -177,6 +183,7 @@ export function DeconstructionReportView({
                 color="gray"
                 onClick={() => setNoteExportOpen(true)}
                 disabled={isStreaming}
+                style={{ borderRadius: "8px", cursor: "pointer" }}
               >
                 <Share2 size={14} />
                 {t("deconstruction.exportToNoteBtn", "归档到项目笔记")}
@@ -191,6 +198,7 @@ export function DeconstructionReportView({
                   onClick={onSaveReport}
                   loading={isSaving}
                   disabled={isStreaming}
+                  style={{ borderRadius: "8px", cursor: "pointer" }}
                 >
                   <Save size={14} />
                   {savedId
@@ -201,14 +209,26 @@ export function DeconstructionReportView({
 
               {/* 复制 */}
               <Tooltip content={t("common.copy", "复制全文")}>
-                <Button size="2" variant="ghost" color="gray" onClick={handleCopy}>
+                <Button
+                  size="2"
+                  variant="ghost"
+                  color="gray"
+                  onClick={handleCopy}
+                  style={{ borderRadius: "8px", cursor: "pointer" }}
+                >
                   <Copy size={14} />
                 </Button>
               </Tooltip>
 
               {/* 下载导出 */}
               <Tooltip content={t("deconstruction.downloadMarkdown", "导出 Markdown 文件")}>
-                <Button size="2" variant="ghost" color="gray" onClick={() => handleDownload("md")}>
+                <Button
+                  size="2"
+                  variant="ghost"
+                  color="gray"
+                  onClick={() => handleDownload("md")}
+                  style={{ borderRadius: "8px", cursor: "pointer" }}
+                >
                   <Download size={14} />
                 </Button>
               </Tooltip>
@@ -216,7 +236,13 @@ export function DeconstructionReportView({
           )}
 
           {/* 打开历史记录 */}
-          <Button size="2" variant="soft" color="gray" onClick={onOpenHistory}>
+          <Button
+            size="2"
+            variant="soft"
+            color="gray"
+            onClick={onOpenHistory}
+            style={{ borderRadius: "8px", cursor: "pointer" }}
+          >
             <History size={14} />
             {t("deconstruction.historyBtn", "拆书历史")}
           </Button>
@@ -247,7 +273,13 @@ export function DeconstructionReportView({
               size="1"
               variant="surface"
               color="gray"
-              style={{ fontSize: "11px", height: "24px", padding: "0 8px" }}
+              style={{
+                fontSize: "11px",
+                height: "24px",
+                padding: "0 10px",
+                borderRadius: "999px",
+                cursor: "pointer",
+              }}
               onClick={() => scrollToSection(sec)}
             >
               {sec.replace(/[【】]/g, "")}
@@ -260,7 +292,7 @@ export function DeconstructionReportView({
       <Box style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {reportMarkdown ? (
           <ScrollArea style={{ height: "100%" }}>
-            <Box p="6" ref={contentContainerRef} style={{ maxWidth: "900px", margin: "0 auto" }}>
+            <Box p="6" ref={contentContainerRef} className="deconstruction-markdown-wrapper">
               <StreamingMarkdown
                 content={reportMarkdown}
                 isStreaming={isStreaming}

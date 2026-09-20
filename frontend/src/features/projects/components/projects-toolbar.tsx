@@ -13,6 +13,7 @@ import {
   Tooltip,
   SegmentedControl,
   IconButton,
+  Kbd,
 } from "@radix-ui/themes";
 import { Plus, Upload, Search, ArrowUpDown, LayoutGrid, List } from "lucide-react";
 import type { ReactNode } from "react";
@@ -62,6 +63,14 @@ export function ProjectsToolbar({
           <Button
             size="2"
             onClick={onCreateClick}
+            style={{
+              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+              boxShadow: "0 2px 8px rgba(99, 102, 241, 0.35)",
+              color: "#ffffff",
+              fontWeight: 600,
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
           >
             <Plus size={16} />
             {t("projects.newProject")}
@@ -70,6 +79,7 @@ export function ProjectsToolbar({
             size="2"
             variant="soft"
             onClick={onImportClick}
+            style={{ borderRadius: "8px", cursor: "pointer" }}
           >
             <Upload size={16} />
             {t("projects.import")}
@@ -88,10 +98,13 @@ export function ProjectsToolbar({
             size="2"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: "200px" }}
+            style={{ width: "220px", borderRadius: "8px" }}
           >
             <TextField.Slot>
               <Search size={14} />
+            </TextField.Slot>
+            <TextField.Slot pr="2">
+              <Kbd size="1">⌘K</Kbd>
             </TextField.Slot>
           </TextField.Root>
 

@@ -386,9 +386,16 @@ export function AppSidebar({ appearance, themeMode, onToggleTheme }: AppSidebarP
               mt="auto"
               direction={isMobile || isExpanded ? "row" : "column"}
               align="center"
-              justify={isMobile || isExpanded ? "end" : "center"}
+              justify={isMobile || isExpanded ? "space-between" : "center"}
               gap="1"
               width="100%"
+              style={{
+                background: "color-mix(in srgb, var(--gray-a2) 75%, transparent)",
+                border: "1px solid var(--gray-a4)",
+                borderRadius: "12px",
+                padding: isMobile || isExpanded ? "4px 8px" : "4px 2px",
+                backdropFilter: "blur(8px)",
+              }}
               transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
             >
               <SidebarActions

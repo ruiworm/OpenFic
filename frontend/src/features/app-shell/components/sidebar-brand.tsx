@@ -117,9 +117,11 @@ export function SidebarBrand({
                 style={{ display: "flex" }}
               >
                 <span
-                  className="sidebar-brand-logo"
+                  className="sidebar-brand-emblem"
                   aria-hidden="true"
-                />
+                >
+                  N
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -132,10 +134,13 @@ export function SidebarBrand({
           transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           aria-hidden={!isExpanded}
         >
-          <span
-            className="sidebar-brand-wordmark"
-            aria-hidden="true"
-          />
+          <div className="sidebar-brand-title-group">
+            <div className="sidebar-brand-title">
+              NovelForge
+              <span className="sidebar-brand-badge">STUDIO</span>
+            </div>
+            <div className="sidebar-brand-subtitle">仓颉 · AI小说工坊</div>
+          </div>
         </motion.div>
       </MotionFlex>
 

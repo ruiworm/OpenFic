@@ -5,10 +5,11 @@
   width: 100%;
   height: var(--app-status-bar-height);
   min-height: var(--app-status-bar-height);
-  padding: 0;
-  border-top: 1px solid var(--gray-a5);
+  padding: 0 6px;
+  border-top: 1px solid var(--gray-a4);
   color: var(--gray-11);
-  background: var(--theme-status-bar-background);
+  background: color-mix(in srgb, var(--color-background) 88%, transparent);
+  backdrop-filter: blur(12px);
   font-size: var(--font-size-xs);
   line-height: 1;
   -webkit-user-select: none;
@@ -51,8 +52,9 @@
 }
 
 .app-status-bar__connection[data-state="connected"] .app-status-bar__connection-dot {
-  background: var(--green-9);
-  box-shadow: 0 0 0 1px var(--green-a5);
+  background: #22c55e;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4);
+  animation: pulse-beacon 2.4s infinite ease-in-out;
 }
 
 .app-status-bar__index-button {
