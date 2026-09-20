@@ -14,7 +14,6 @@ import { DeconstructionInputPanel } from "../components/deconstruction-input-pan
 import { DeconstructionReportView } from "../components/deconstruction-report-view";
 import {
   useCreateProjectFromDeconstruction,
-  useDefaultPromptTemplate,
   useExportDeconstructionToNote,
   useSaveDeconstruction,
 } from "../hooks/use-deconstruction";
@@ -27,15 +26,11 @@ export function DeconstructionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  // 默认拆书提示词
-  const { data: defaultPrompt = "" } = useDefaultPromptTemplate();
-
   // 本地表单与分析状态
   const [title, setTitle] = useState("");
   const [sourceTitle, setSourceTitle] = useState("");
   const [text, setText] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [promptTemplate, setPromptTemplate] = useState("");
   const [reportMarkdown, setReportMarkdown] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(undefined);
@@ -68,7 +63,6 @@ export function DeconstructionPage() {
       {
         text: text.trim(),
         model_id: selectedModelId || undefined,
-        prompt_template: promptTemplate || undefined,
         title: title || undefined,
         source_title: sourceTitle || undefined,
       },
@@ -90,7 +84,7 @@ export function DeconstructionPage() {
       },
       controller.signal,
     );
-  }, [promptTemplate, selectedModelId, sourceTitle, text, title, t]);
+  }, [selectedModelId, sourceTitle, text, title, t]);
 
   // 停止分析
   const handleStopAnalysis = useCallback(() => {
@@ -120,7 +114,6 @@ export function DeconstructionPage() {
         source_word_count: text.length,
         source_text: text,
         model_id: selectedModelId,
-        prompt_template: promptTemplate || defaultPrompt,
         report_markdown: reportMarkdown,
       });
       setSavedId(saved.id);
@@ -146,7 +139,6 @@ export function DeconstructionPage() {
           source_word_count: text.length,
           source_text: text,
           model_id: selectedModelId,
-          prompt_template: promptTemplate || defaultPrompt,
           report_markdown: reportMarkdown,
         });
         targetId = saved.id;
@@ -182,7 +174,6 @@ export function DeconstructionPage() {
           source_word_count: text.length,
           source_text: text,
           model_id: selectedModelId,
-          prompt_template: promptTemplate || defaultPrompt,
           report_markdown: reportMarkdown,
         });
         targetId = saved.id;
@@ -223,9 +214,6 @@ export function DeconstructionPage() {
           onTextChange={setText}
           selectedModelId={selectedModelId}
           onModelChange={setSelectedModelId}
-          promptTemplate={promptTemplate}
-          onPromptTemplateChange={setPromptTemplate}
-          defaultPromptTemplate={defaultPrompt}
           isStreaming={isStreaming}
           onStartAnalysis={handleStartAnalysis}
           onStopAnalysis={handleStopAnalysis}

@@ -94,6 +94,7 @@
     "sourceBookName": "Original Title / Story",
     "sourceBookPlaceholder": "e.g., Target Hit Novel",
     "selectModel": "Analysis Model:",
+    "builtinPresetBadge": "22-Dimension Expert Preset",
     "promptSettingsBtn": "Prompt Template",
     "customPromptTitle": "22-Dimensional Novel Analyst Prompt",
     "resetDefaultPrompt": "Reset to Default Template",

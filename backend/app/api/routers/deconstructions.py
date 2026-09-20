@@ -90,7 +90,7 @@ async def save_deconstruction(
         source_word_count=word_count,
         source_text=payload.source_text,
         model_id=payload.model_id,
-        prompt_template=payload.prompt_template,
+        prompt_template=payload.prompt_template or DEFAULT_DECONSTRUCTION_PROMPT,
         report_markdown=payload.report_markdown,
     )
 

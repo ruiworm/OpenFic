@@ -3,6 +3,7 @@
  */
 
 import {
+  Badge,
   Box,
   Button,
   Flex,
@@ -19,8 +20,6 @@ import {
   Play,
   Square,
   Trash2,
-  Settings2,
-  RotateCcw,
   Sparkles,
 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -38,9 +37,6 @@ interface DeconstructionInputPanelProps {
   onTextChange: (v: string) => void;
   selectedModelId: string;
   onModelChange: (v: string) => void;
-  promptTemplate: string;
-  onPromptTemplateChange: (v: string) => void;
-  defaultPromptTemplate: string;
   isStreaming: boolean;
   onStartAnalysis: () => void;
   onStopAnalysis: () => void;
@@ -56,9 +52,6 @@ export function DeconstructionInputPanel({
   onTextChange,
   selectedModelId,
   onModelChange,
-  promptTemplate,
-  onPromptTemplateChange,
-  defaultPromptTemplate,
   isStreaming,
   onStartAnalysis,
   onStopAnalysis,
@@ -66,7 +59,6 @@ export function DeconstructionInputPanel({
 }: DeconstructionInputPanelProps) {
   const { t } = useTranslation();
   const [inputTab, setInputTab] = useState<"paste" | "upload">("paste");
-  const [showPromptSettings, setShowPromptSettings] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 获取模型列表
@@ -143,9 +135,9 @@ export function DeconstructionInputPanel({
         </Flex>
       </Box>
 
-      {/* 模型选择与模板定制切换 */}
-      <Flex align="center" justify="between" gap="2">
-        <Flex align="center" gap="2" style={{ flex: 1, minWidth: 0 }}>
+      {/* 模型选择与内置分析师预设标识 */}
+      <Flex align="center" justify="between" gap="3" wrap="wrap">
+        <Flex align="center" gap="2" style={{ flex: 1, minWidth: 200 }}>
           <Text size="1" color="gray" weight="medium" style={{ flexShrink: 0 }}>
             {t("deconstruction.selectModel", "分析模型：")}
           </Text>
@@ -166,50 +158,22 @@ export function DeconstructionInputPanel({
           </Select.Root>
         </Flex>
 
-        <Button
-          size="1"
-          variant={showPromptSettings ? "solid" : "soft"}
-          color={showPromptSettings ? undefined : "gray"}
-          onClick={() => setShowPromptSettings(!showPromptSettings)}
-        >
-          <Settings2 size={13} />
-          {t("deconstruction.promptSettingsBtn", "拆书模板")}
-        </Button>
-      </Flex>
-
-      {/* 展开的提示词模板自定义区 */}
-      {showPromptSettings && (
-        <Box
-          p="2"
+        <Badge
+          variant="surface"
+          color="indigo"
+          size="2"
           style={{
-            background: "var(--gray-a2)",
-            borderRadius: "var(--radius-3)",
-            border: "1px solid var(--gray-a4)",
+            borderRadius: "8px",
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
           }}
         >
-          <Flex justify="between" align="center" mb="1">
-            <Text size="1" weight="bold">
-              {t("deconstruction.customPromptTitle", "22 维小说拆解分析师提示词")}
-            </Text>
-            <Button
-              size="1"
-              variant="ghost"
-              color="gray"
-              onClick={() => onPromptTemplateChange(defaultPromptTemplate)}
-            >
-              <RotateCcw size={11} />
-              {t("deconstruction.resetDefaultPrompt", "恢复默认模板")}
-            </Button>
-          </Flex>
-          <TextArea
-            size="1"
-            rows={5}
-            value={promptTemplate || defaultPromptTemplate}
-            onChange={(e) => onPromptTemplateChange(e.target.value)}
-            disabled={isStreaming}
-          />
-        </Box>
-      )}
+          <Sparkles size={12} />
+          {t("deconstruction.builtinPresetBadge", "22 维金牌小说拆解预设")}
+        </Badge>
+      </Flex>
 
       {/* 输入方式切换 */}
       <Flex justify="between" align="center">
