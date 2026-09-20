@@ -386,7 +386,7 @@ export function AppSidebar({ appearance, themeMode, onToggleTheme }: AppSidebarP
               mt="auto"
               direction={isMobile || isExpanded ? "row" : "column"}
               align="center"
-              justify={isMobile || isExpanded ? "space-between" : "center"}
+              justify={isMobile || isExpanded ? "between" : "center"}
               gap="1"
               width="100%"
               style={{

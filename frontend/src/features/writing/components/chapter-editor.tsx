@@ -1,6 +1,6 @@
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { AlignCenter, AtSign, Eye, ShieldAlert, ShieldCheck } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -281,31 +281,37 @@ function ChapterEditorContent({
     [updateDirtyState],
   );
 
-  const scrollCursorToCenter = useCallback(() => {
-    if (!typewriterModeRef.current || !containerRef.current) return;
-    if (isUserScrollingRef.current) return;
+  const editorRef = useRef<Editor | null>(null);
 
-    try {
-      const view = editor?.view;
-      if (!view) return;
-      const { selection } = view.state;
-      const coords = view.coordsAtPos(selection.from);
-      const container = containerRef.current;
-      const containerRect = container.getBoundingClientRect();
+  const scrollCursorToCenter = useCallback(
+    (editorInstance?: Editor | null) => {
+      if (!typewriterModeRef.current || !containerRef.current) return;
+      if (isUserScrollingRef.current) return;
 
-      const targetY = containerRect.top + containerRect.height * 0.45;
-      const diff = coords.top - targetY;
+      try {
+        const activeEditor = editorInstance ?? editorRef.current;
+        const view = activeEditor?.view;
+        if (!view) return;
+        const { selection } = view.state;
+        const coords = view.coordsAtPos(selection.from);
+        const container = containerRef.current;
+        const containerRect = container.getBoundingClientRect();
 
-      if (Math.abs(diff) > 10) {
-        container.scrollBy({
-          top: diff,
-          behavior: "smooth",
-        });
+        const targetY = containerRect.top + containerRect.height * 0.45;
+        const diff = coords.top - targetY;
+
+        if (Math.abs(diff) > 10) {
+          container.scrollBy({
+            top: diff,
+            behavior: "smooth",
+          });
+        }
+      } catch {
+        // 容错忽略
       }
-    } catch {
-      // 容错忽略
-    }
-  }, [containerRef, editor]);
+    },
+    [containerRef],
+  );
 
   const editor = useEditor({
     extensions: createEditorExtensions({
@@ -332,22 +338,24 @@ function ChapterEditorContent({
     }),
     editable: !isAgentLocked,
     content: initialDraft.content ? newlinesToHtml(initialDraft.content) : "",
-    onSelectionUpdate: () => {
+    onSelectionUpdate: ({ editor: currentEditor }) => {
       isUserScrollingRef.current = false;
-      scrollCursorToCenter();
+      scrollCursorToCenter(currentEditor);
     },
     onUpdate: ({ editor }) => {
       if (isAgentLocked) return;
       syncDirtyStateFromEditor(editor);
       setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       setWordCount(wordsCount(editor.getText()));
-      scrollCursorToCenter();
+      scrollCursorToCenter(editor);
     },
     onCreate: ({ editor }) => {
       setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       setWordCount(wordsCount(editor.getText()));
     },
   });
+
+  editorRef.current = editor;
 
   useEffect(() => {
     if (!editor) return;
@@ -759,8 +767,7 @@ function ChapterEditorContent({
     t,
   ]);
 
-  const handleContainerWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    scrollbarProps.onWheel?.(e);
+  const handleContainerWheel = () => {
     if (typewriterMode) {
       isUserScrollingRef.current = true;
       if (userScrollResetTimerRef.current) {

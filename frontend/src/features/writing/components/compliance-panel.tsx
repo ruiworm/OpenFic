@@ -6,10 +6,9 @@ import {
   IconButton,
   ScrollArea,
   Text,
-  Tooltip,
 } from "@radix-ui/themes";
 import type { Editor } from "@tiptap/react";
-import { AlertTriangle, Check, ChevronRight, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { Check, ChevronRight, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { toast } from "@/components";

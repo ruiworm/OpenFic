@@ -10,9 +10,7 @@ import {
 } from "@radix-ui/themes";
 import {
   Check,
-  CheckCircle2,
   Clock,
-  HelpCircle,
   Pencil,
   Plus,
   Send,

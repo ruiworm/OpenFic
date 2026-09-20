@@ -62,7 +62,7 @@ const TOC_SECTIONS = [
 
 export function DeconstructionReportView({
   title,
-  sourceTitle,
+  sourceTitle: _sourceTitle,
   reportMarkdown,
   isStreaming,
   savedId,
@@ -363,7 +363,6 @@ export function DeconstructionReportView({
                 </Button>
               </Dialog.Close>
               <Button
-                color="accent"
                 disabled={!selectedProjectId}
                 onClick={handleConfirmExportToNote}
               >

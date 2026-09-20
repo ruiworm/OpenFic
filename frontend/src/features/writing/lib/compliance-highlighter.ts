@@ -138,15 +138,15 @@ export const ComplianceHighlighter = Extension.create<ComplianceHighlighterOptio
   },
 
   addProseMirrorPlugins() {
-    const extensionThis = this;
+    const { options, storage } = this;
 
     return [
       new Plugin({
         key: compliancePluginKey,
         state: {
           init(_, state) {
-            const enabled = extensionThis.options.enabled;
-            extensionThis.storage.enabled = enabled;
+            const enabled = options.enabled;
+            storage.enabled = enabled;
             if (!enabled) {
               return {
                 decorations: DecorationSet.empty,
@@ -155,8 +155,8 @@ export const ComplianceHighlighter = Extension.create<ComplianceHighlighterOptio
               };
             }
             const { decorations, matches } = processDocCompliance(state.doc, COMPLIANCE_RULES);
-            extensionThis.storage.matches = matches;
-            extensionThis.options.onMatchesChange?.(matches);
+            storage.matches = matches;
+            options.onMatchesChange?.(matches);
             return { decorations, matches, enabled: true };
           },
 
@@ -166,13 +166,13 @@ export const ComplianceHighlighter = Extension.create<ComplianceHighlighterOptio
 
             if (meta && typeof meta.setEnabled === "boolean") {
               enabled = meta.setEnabled;
-              extensionThis.storage.enabled = enabled;
+              storage.enabled = enabled;
             }
 
             if (!enabled) {
               if (oldState.enabled) {
-                extensionThis.storage.matches = [];
-                extensionThis.options.onMatchesChange?.([]);
+                storage.matches = [];
+                options.onMatchesChange?.([]);
               }
               return {
                 decorations: DecorationSet.empty,
@@ -183,8 +183,8 @@ export const ComplianceHighlighter = Extension.create<ComplianceHighlighterOptio
 
             if (tr.docChanged || meta) {
               const { decorations, matches } = processDocCompliance(newState.doc, COMPLIANCE_RULES);
-              extensionThis.storage.matches = matches;
-              extensionThis.options.onMatchesChange?.(matches);
+              storage.matches = matches;
+              options.onMatchesChange?.(matches);
               return { decorations, matches, enabled: true };
             }
 

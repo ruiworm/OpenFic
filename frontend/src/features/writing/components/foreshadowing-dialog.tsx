@@ -178,7 +178,7 @@ export function ForeshadowingDialog({
                 </Text>
                 <SimpleSelect
                   value={status}
-                  onValueChange={(val) => setStatus(val as ForeshadowingStatus)}
+                  onChange={(val: string) => setStatus(val as ForeshadowingStatus)}
                   options={statusOptions}
                 />
               </div>
@@ -188,7 +188,7 @@ export function ForeshadowingDialog({
                 </Text>
                 <SimpleSelect
                   value={importance}
-                  onValueChange={(val) => setImportance(val as ForeshadowingImportance)}
+                  onChange={(val: string) => setImportance(val as ForeshadowingImportance)}
                   options={importanceOptions}
                 />
               </div>
@@ -200,7 +200,7 @@ export function ForeshadowingDialog({
               </Text>
               <SimpleSelect
                 value={plantedChapterId}
-                onValueChange={setPlantedChapterId}
+                onChange={setPlantedChapterId}
                 options={chapterOptions}
               />
             </div>
@@ -222,7 +222,7 @@ export function ForeshadowingDialog({
                 </Text>
                 <SimpleSelect
                   value={resolvedChapterId}
-                  onValueChange={setResolvedChapterId}
+                  onChange={setResolvedChapterId}
                   options={chapterOptions}
                 />
               </div>

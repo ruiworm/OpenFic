@@ -81,7 +81,7 @@ export function DeconstructionInputPanel({
     queryFn: fetchSettings,
   });
 
-  const activeModelId = selectedModelId || settings?.default_model || (models[0]?.id ?? "");
+  const activeModelId = selectedModelId || settings?.defaultModel || (models[0]?.id ?? "");
 
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
@@ -169,7 +169,7 @@ export function DeconstructionInputPanel({
         <Button
           size="1"
           variant={showPromptSettings ? "solid" : "soft"}
-          color={showPromptSettings ? "accent" : "gray"}
+          color={showPromptSettings ? undefined : "gray"}
           onClick={() => setShowPromptSettings(!showPromptSettings)}
         >
           <Settings2 size={13} />
@@ -316,7 +316,6 @@ export function DeconstructionInputPanel({
         ) : (
           <Button
             size="3"
-            color="accent"
             variant="solid"
             style={{ flex: 1 }}
             disabled={!text.trim()}

@@ -456,11 +456,11 @@ function Root() {
 
         if (mounted) {
           setRequiresAuthentication(false);
-          setSettings(settings);
           applyThemeSettings(settings);
           setIsReady(true);
         }
       } catch (initializationError) {
+        console.error("[INITIALIZATION_FAILED]", initializationError);
         if (mounted) {
           // Socket.IO retries transports and reconnects within this deadline.
           if (Date.now() - startTime >= INITIALIZATION_TIMEOUT_MS) {
