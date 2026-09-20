@@ -48,6 +48,7 @@ def register_sqlmodel_models() -> None:
     from app.storage.models.world_info import WorldInfo
     from app.storage.models.world_info_entry import WorldInfoEntry
     from app.storage.models.writing_activity_event import WritingActivityEvent
+    from app.storage.models.foreshadowing import Foreshadowing
 
     _ = (
         LLMAuditLog,
@@ -62,6 +63,7 @@ def register_sqlmodel_models() -> None:
         Chapter,
         ChapterSummary,
         Commit,
+        Foreshadowing,
         Model,
         ModelProvider,
         Note,

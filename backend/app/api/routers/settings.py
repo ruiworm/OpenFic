@@ -116,6 +116,9 @@ SETTING_KEY_EDITOR_AUTO_INDENT = "editor_auto_indent"
 SETTING_KEY_EDITOR_AUTO_CONVERT_PUNCTUATION = "editor_auto_convert_punctuation"
 SETTING_KEY_EDITOR_AUTO_PAIR_SYMBOLS = "editor_auto_pair_symbols"
 SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS = "editor_show_line_numbers"
+SETTING_KEY_EDITOR_TYPEWRITER_MODE = "editor_typewriter_mode"
+SETTING_KEY_EDITOR_FOCUS_MODE = "editor_focus_mode"
+SETTING_KEY_EDITOR_COMPLIANCE_CHECK = "editor_compliance_check"
 # 默认值
 DEFAULT_SETTINGS = {
     SETTING_KEY_LANGUAGE: "zh-CN",
@@ -163,6 +166,9 @@ DEFAULT_SETTINGS = {
     SETTING_KEY_EDITOR_AUTO_CONVERT_PUNCTUATION: "false",
     SETTING_KEY_EDITOR_AUTO_PAIR_SYMBOLS: "false",
     SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS: "false",
+    SETTING_KEY_EDITOR_TYPEWRITER_MODE: "false",
+    SETTING_KEY_EDITOR_FOCUS_MODE: "false",
+    SETTING_KEY_EDITOR_COMPLIANCE_CHECK: "false",
 }
 
 
@@ -471,6 +477,27 @@ code_font_family=settings_dict.get(
             ),
             default=False,
         ),
+        editor_typewriter_mode=_parse_bool_setting(
+            settings_dict.get(
+                SETTING_KEY_EDITOR_TYPEWRITER_MODE,
+                DEFAULT_SETTINGS[SETTING_KEY_EDITOR_TYPEWRITER_MODE],
+            ),
+            default=False,
+        ),
+        editor_focus_mode=_parse_bool_setting(
+            settings_dict.get(
+                SETTING_KEY_EDITOR_FOCUS_MODE,
+                DEFAULT_SETTINGS[SETTING_KEY_EDITOR_FOCUS_MODE],
+            ),
+            default=False,
+        ),
+        editor_compliance_check=_parse_bool_setting(
+            settings_dict.get(
+                SETTING_KEY_EDITOR_COMPLIANCE_CHECK,
+                DEFAULT_SETTINGS[SETTING_KEY_EDITOR_COMPLIANCE_CHECK],
+            ),
+            default=False,
+        ),
     )
 
 
@@ -712,6 +739,21 @@ async def update_settings(
     if request.editor_show_line_numbers is not None:
         settings_to_update[SETTING_KEY_EDITOR_SHOW_LINE_NUMBERS] = json.dumps(
             request.editor_show_line_numbers,
+            ensure_ascii=False,
+        )
+    if request.editor_typewriter_mode is not None:
+        settings_to_update[SETTING_KEY_EDITOR_TYPEWRITER_MODE] = json.dumps(
+            request.editor_typewriter_mode,
+            ensure_ascii=False,
+        )
+    if request.editor_focus_mode is not None:
+        settings_to_update[SETTING_KEY_EDITOR_FOCUS_MODE] = json.dumps(
+            request.editor_focus_mode,
+            ensure_ascii=False,
+        )
+    if request.editor_compliance_check is not None:
+        settings_to_update[SETTING_KEY_EDITOR_COMPLIANCE_CHECK] = json.dumps(
+            request.editor_compliance_check,
             ensure_ascii=False,
         )
 

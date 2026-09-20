@@ -278,7 +278,9 @@
       "description": "章节会追加到目标卷末尾。"
     },
     "words": "字",
+    "chapters": "章节",
     "notes": "笔记",
+    "foreshadowings": "伏笔",
     "newNote": "新建笔记",
     "importNotes": "导入笔记",
     "exportNote": "导出笔记",

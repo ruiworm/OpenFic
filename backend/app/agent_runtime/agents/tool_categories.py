@@ -32,6 +32,11 @@ TOOL_CATEGORIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "edit_character",
             "delete_character",
         ),
+        "foreshadowing_read": ("list_foreshadowings",),
+        "foreshadowing_write": (
+            "record_foreshadowing",
+            "resolve_foreshadowing",
+        ),
         "world_read": ("list_world_entries", "read_world_entry"),
         "world_write": (
             "create_world_entry",

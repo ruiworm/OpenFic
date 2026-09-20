@@ -39,6 +39,7 @@ EXPECTED_AGENT_TOOL_PERMISSIONS = [
     {"tool_name": "edit_world_entry", "mode": "ask"},
     {"tool_name": "list_chapters", "mode": "allow"},
     {"tool_name": "list_characters", "mode": "allow"},
+    {"tool_name": "list_foreshadowings", "mode": "allow"},
     {"tool_name": "list_notes", "mode": "allow"},
     {"tool_name": "list_subagents", "mode": "allow"},
     {"tool_name": "list_volumes", "mode": "allow"},
@@ -52,8 +53,10 @@ EXPECTED_AGENT_TOOL_PERMISSIONS = [
     {"tool_name": "read_note", "mode": "allow"},
     {"tool_name": "read_range_summaries", "mode": "allow"},
     {"tool_name": "read_world_entry", "mode": "allow"},
+    {"tool_name": "record_foreshadowing", "mode": "ask"},
     {"tool_name": "recycle_subagent", "mode": "allow"},
     {"tool_name": "reference_skill", "mode": "allow"},
+    {"tool_name": "resolve_foreshadowing", "mode": "ask"},
     {"tool_name": "search_chapters", "mode": "allow"},
     {"tool_name": "update_index", "mode": "allow"},
     {"tool_name": "web_fetch", "mode": "allow"},
@@ -702,3 +705,29 @@ async def test_get_settings_does_not_lazy_persist_agent_tool_permissions(
     assert setting is None
     bypass_setting = await setting_repo.get_by_key(session, "agent_bypass_tool_approval")
     assert bypass_setting is None
+
+
+@pytest.mark.asyncio
+async def test_editor_mode_settings(client: AsyncClient) -> None:
+    """测试打字机居中模式、专注模式与合规检测设置的读取与更新。"""
+    res = await client.get("/api/v1/settings")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["editor_typewriter_mode"] is False
+    assert data["editor_focus_mode"] is False
+    assert data["editor_compliance_check"] is False
+
+    update_res = await client.put(
+        "/api/v1/settings",
+        json={
+            "editor_typewriter_mode": True,
+            "editor_focus_mode": True,
+            "editor_compliance_check": True,
+        },
+    )
+    assert update_res.status_code == 200
+    updated_data = update_res.json()
+    assert updated_data["editor_typewriter_mode"] is True
+    assert updated_data["editor_focus_mode"] is True
+    assert updated_data["editor_compliance_check"] is True
+

@@ -1,7 +1,7 @@
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
-import { AtSign } from "lucide-react";
+import { AlignCenter, AtSign, Eye, ShieldAlert, ShieldCheck } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import wordsCountModule from "words-count";
 
 import { toast } from "@/components";
-import { TitleInput, EditorToolbar, Spinner } from "@/components";
+import { TitleInput, EditorToolbar, Spinner, type EditorToolbarExtraAction } from "@/components";
 import { ContextMenu } from "@/components";
 import {
   buildChapterMentionTag,
@@ -17,7 +17,7 @@ import {
 } from "@/features/assistant/lib/mention-text";
 import { fetchSettings } from "@/features/settings/lib/settings-api";
 import { useScrollbarAutoHide } from "@/hooks/use-scrollbar-auto-hide";
-import { fetchChapter } from "@/lib/api-client";
+import { apiClient, fetchChapter } from "@/lib/api-client";
 import type { Chapter } from "@/lib/chapter.types";
 import {
   getEditorContentLimit,
@@ -45,7 +45,10 @@ import {
   isRemoteWritingEntityNewer,
 } from "../lib/writing-working-copy";
 import { useTabsStore } from "../store/use-tabs-store";
+import type { ComplianceMatch } from "../lib/compliance-rules";
+import { CompliancePanel } from "./compliance-panel";
 import { FindReplacePanel } from "./find-replace-panel";
+import "./chapter-editor.css";
 
 const MANUAL_SAVE_EVENT = "openfic:chapter-editor-manual-save";
 
@@ -125,6 +128,35 @@ function ChapterEditorContent({
     settings?.editorAutoConvertPunctuation,
     settings?.editorAutoPairSymbols,
   ]);
+
+  const [typewriterMode, setTypewriterMode] = useState(false);
+  const typewriterModeRef = useRef(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const focusModeRef = useRef(false);
+  const [complianceCheck, setComplianceCheck] = useState(false);
+  const complianceCheckRef = useRef(false);
+  const [complianceMatches, setComplianceMatches] = useState<ComplianceMatch[]>([]);
+  const [showCompliancePanel, setShowCompliancePanel] = useState(false);
+
+  const isUserScrollingRef = useRef(false);
+  const userScrollResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (settings) {
+      if (settings.editorTypewriterMode !== undefined) {
+        setTypewriterMode(settings.editorTypewriterMode);
+        typewriterModeRef.current = settings.editorTypewriterMode;
+      }
+      if (settings.editorFocusMode !== undefined) {
+        setFocusMode(settings.editorFocusMode);
+        focusModeRef.current = settings.editorFocusMode;
+      }
+      if (settings.editorComplianceCheck !== undefined) {
+        setComplianceCheck(settings.editorComplianceCheck);
+        complianceCheckRef.current = settings.editorComplianceCheck;
+      }
+    }
+  }, [settings]);
 
   const [title, setTitle] = useState(initialDraft.title);
   const titleRef = useRef(initialDraft.title);
@@ -249,12 +281,43 @@ function ChapterEditorContent({
     [updateDirtyState],
   );
 
+  const scrollCursorToCenter = useCallback(() => {
+    if (!typewriterModeRef.current || !containerRef.current) return;
+    if (isUserScrollingRef.current) return;
+
+    try {
+      const view = editor?.view;
+      if (!view) return;
+      const { selection } = view.state;
+      const coords = view.coordsAtPos(selection.from);
+      const container = containerRef.current;
+      const containerRect = container.getBoundingClientRect();
+
+      const targetY = containerRect.top + containerRect.height * 0.45;
+      const diff = coords.top - targetY;
+
+      if (Math.abs(diff) > 10) {
+        container.scrollBy({
+          top: diff,
+          behavior: "smooth",
+        });
+      }
+    } catch {
+      // 容错忽略
+    }
+  }, [containerRef, editor]);
+
   const editor = useEditor({
     extensions: createEditorExtensions({
       placeholder: t("writing.contentPlaceholder"),
       autoIndent: () => autoIndentRef.current,
       autoConvertPunctuation: () => autoConvertPunctuationRef.current,
       autoPairSymbols: () => autoPairSymbolsRef.current,
+      complianceOptions: {
+        enabled: settings?.editorComplianceCheck ?? false,
+        onMatchesChange: (matches) => setComplianceMatches(matches),
+      },
+      isFocusMode: () => focusModeRef.current,
       shortcuts: {
         onFind: openFind,
         onReplace: openReplace,
@@ -269,11 +332,16 @@ function ChapterEditorContent({
     }),
     editable: !isAgentLocked,
     content: initialDraft.content ? newlinesToHtml(initialDraft.content) : "",
+    onSelectionUpdate: () => {
+      isUserScrollingRef.current = false;
+      scrollCursorToCenter();
+    },
     onUpdate: ({ editor }) => {
       if (isAgentLocked) return;
       syncDirtyStateFromEditor(editor);
       setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       setWordCount(wordsCount(editor.getText()));
+      scrollCursorToCenter();
     },
     onCreate: ({ editor }) => {
       setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
@@ -600,6 +668,110 @@ function ChapterEditorContent({
     ];
   }, [addSelectionToConversation, chapter.id, chapter.title, editor, onAddToConversation, t]);
 
+  const toggleTypewriterMode = useCallback(async () => {
+    const next = !typewriterMode;
+    setTypewriterMode(next);
+    typewriterModeRef.current = next;
+    if (next) {
+      setTimeout(scrollCursorToCenter, 50);
+    }
+    try {
+      await apiClient.put("/settings", { editor_typewriter_mode: next });
+    } catch {
+      // 容错
+    }
+  }, [typewriterMode, scrollCursorToCenter]);
+
+  const toggleFocusMode = useCallback(async () => {
+    const next = !focusMode;
+    setFocusMode(next);
+    focusModeRef.current = next;
+    try {
+      await apiClient.put("/settings", { editor_focus_mode: next });
+    } catch {
+      // 容错
+    }
+  }, [focusMode]);
+
+  const toggleCompliance = useCallback(async () => {
+    const next = !complianceCheck;
+    setComplianceCheck(next);
+    complianceCheckRef.current = next;
+    if (editor) {
+      editor.commands.setComplianceEnabled(next);
+    }
+    if (next) {
+      setShowCompliancePanel(true);
+    } else {
+      setShowCompliancePanel(false);
+      setComplianceMatches([]);
+    }
+    try {
+      await apiClient.put("/settings", { editor_compliance_check: next });
+    } catch {
+      // 容错
+    }
+  }, [complianceCheck, editor]);
+
+  const extraActions = useMemo<EditorToolbarExtraAction[]>(() => {
+    return [
+      {
+        id: "typewriter-mode",
+        icon: <AlignCenter size={18} />,
+        label: typewriterMode
+          ? t("writing.typewriterModeOn", "打字机居中模式 (已开启)")
+          : t("writing.typewriterModeOff", "打字机居中模式 (点击开启)"),
+        active: typewriterMode,
+        onClick: toggleTypewriterMode,
+      },
+      {
+        id: "focus-mode",
+        icon: <Eye size={18} />,
+        label: focusMode
+          ? t("writing.focusModeOn", "专注淡化模式 (已开启)")
+          : t("writing.focusModeOff", "专注淡化模式 (点击开启)"),
+        active: focusMode,
+        onClick: toggleFocusMode,
+      },
+      {
+        id: "compliance-scan",
+        icon: complianceMatches.length > 0 ? (
+          <ShieldAlert size={18} color="var(--amber-10)" />
+        ) : (
+          <ShieldCheck size={18} />
+        ),
+        label: complianceCheck
+          ? t("writing.complianceCheckOn", "网文合规排雷检测 (已开启)")
+          : t("writing.complianceCheckOff", "网文合规排雷检测 (点击开启)"),
+        active: complianceCheck || showCompliancePanel,
+        onClick: toggleCompliance,
+      },
+    ];
+  }, [
+    typewriterMode,
+    focusMode,
+    complianceCheck,
+    complianceMatches.length,
+    showCompliancePanel,
+    toggleTypewriterMode,
+    toggleFocusMode,
+    toggleCompliance,
+    t,
+  ]);
+
+  const handleContainerWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    scrollbarProps.onWheel?.(e);
+    if (typewriterMode) {
+      isUserScrollingRef.current = true;
+      if (userScrollResetTimerRef.current) {
+        clearTimeout(userScrollResetTimerRef.current);
+      }
+      userScrollResetTimerRef.current = setTimeout(() => {
+        isUserScrollingRef.current = false;
+      }, 1200);
+    }
+  };
+
   const editorMaxWidth = 800;
   const lineNumberWidth = `max(1.5rem, calc(${lineNumberDigits}ch + 0.25rem))`;
   const lineNumberWidthStyle = showLineNumbers
@@ -613,6 +785,7 @@ function ChapterEditorContent({
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
+        position: "relative",
       }}
     >
       <EditorToolbar
@@ -624,6 +797,7 @@ function ChapterEditorContent({
         onLockedAction={showLockedToast}
         onOpenFind={openFind}
         onOpenReplace={openReplace}
+        extraActions={extraActions}
         showChapterTools
       />
 
@@ -638,11 +812,19 @@ function ChapterEditorContent({
         )}
       </AnimatePresence>
 
+      {showCompliancePanel && (
+        <CompliancePanel
+          editor={editor}
+          matches={complianceMatches}
+          onClose={() => setShowCompliancePanel(false)}
+        />
+      )}
+
       <Box
         ref={containerRef}
         style={{ flex: 1, minHeight: 0, overflow: "auto" }}
-        className={`tiptap-editor-wrapper${showLineNumbers ? " tiptap-editor-wrapper--line-numbers" : ""} ${scrollbarProps.className}`}
-        onWheel={scrollbarProps.onWheel}
+        className={`tiptap-editor-wrapper${showLineNumbers ? " tiptap-editor-wrapper--line-numbers" : ""}${typewriterMode ? " chapter-editor-typewriter-mode" : ""}${focusMode ? " chapter-editor-focus-mode" : ""} ${scrollbarProps.className}`}
+        onWheel={handleContainerWheel}
         onMouseMove={scrollbarProps.onMouseMove}
         onMouseLeave={scrollbarProps.onMouseLeave}
         onScroll={handleEditorScroll}
@@ -703,6 +885,28 @@ function ChapterEditorContent({
         >
           {wordCount} {t("writing.words")}
         </Text>
+
+        {complianceCheck && (
+          <Flex
+            align="center"
+            gap="1"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowCompliancePanel((prev) => !prev)}
+          >
+            {complianceMatches.length > 0 ? (
+              <Badge color="amber" variant="surface" size="1">
+                <ShieldAlert size={12} style={{ marginRight: 2 }} />
+                合规排雷：{complianceMatches.length} 处提示
+              </Badge>
+            ) : (
+              <Badge color="green" variant="surface" size="1">
+                <ShieldCheck size={12} style={{ marginRight: 2 }} />
+                合规检测：未见违规
+              </Badge>
+            )}
+          </Flex>
+        )}
+
         <Text
           size="1"
           color="gray"

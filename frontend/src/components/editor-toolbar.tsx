@@ -57,6 +57,7 @@ export interface EditorToolbarExtraAction {
   id: string;
   icon: React.ReactNode;
   label: string;
+  active?: boolean;
   onClick: () => void;
 }
 
@@ -688,6 +689,7 @@ export function EditorToolbar({
                   key={action.id}
                   icon={action.icon}
                   label={action.label}
+                  active={action.active}
                   onClick={action.onClick}
                 />
               ))}

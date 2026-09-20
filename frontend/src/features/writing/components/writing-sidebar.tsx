@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { useWritingStore } from "../store/use-writing-store";
 import { ChapterSidebar } from "./chapter-sidebar";
+import { ForeshadowingSidebar } from "./foreshadowing-sidebar";
 import { NoteSidebar } from "./note-sidebar";
 
 interface WritingSidebarProps {
@@ -47,13 +48,18 @@ export function WritingSidebar({
       >
         <SegmentedControl.Root
           value={sidebarView}
-          onValueChange={(value) => setSidebarView(value as "chapters" | "notes")}
+          onValueChange={(value) =>
+            setSidebarView(value as "chapters" | "notes" | "foreshadowings")
+          }
           size="2"
           className="writing-sidebar-segmented-control"
           style={{ width: "100%" }}
         >
           <SegmentedControl.Item value="chapters">{t("writing.chapters")}</SegmentedControl.Item>
           <SegmentedControl.Item value="notes">{t("writing.notes")}</SegmentedControl.Item>
+          <SegmentedControl.Item value="foreshadowings">
+            {t("writing.foreshadowings", "伏笔")}
+          </SegmentedControl.Item>
         </SegmentedControl.Root>
       </div>
 
@@ -67,10 +73,17 @@ export function WritingSidebar({
           initialCurrentChapterNavigationKey={initialCurrentChapterNavigationKey}
           onOpenSummary={onOpenSummary}
         />
-      ) : (
+      ) : sidebarView === "notes" ? (
         <NoteSidebar
           projectId={projectId}
           onNoteSelect={onNoteSelect}
+          onAddToConversation={onAddToConversation}
+          isAgentLocked={isAgentLocked}
+          compact={compact}
+        />
+      ) : (
+        <ForeshadowingSidebar
+          projectId={projectId}
           onAddToConversation={onAddToConversation}
           isAgentLocked={isAgentLocked}
           compact={compact}

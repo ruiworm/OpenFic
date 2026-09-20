@@ -12,13 +12,14 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Placeholder from "@tiptap/extension-placeholder";
 import Text from "@tiptap/extension-text";
 import { Plugin, TextSelection, type Transaction } from "@tiptap/pm/state";
-import type { EditorView } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Extension } from "@tiptap/react";
 
 import { serializeClipboardText } from "@/components/editor-clipboard";
 import { createEditorShortcuts, type EditorShortcutCallbacks } from "@/components/editor-shortcuts";
 import { PARAGRAPH_INDENT } from "@/components/editor-toolbar-actions";
 
+import { ComplianceHighlighter, type ComplianceHighlighterOptions } from "./compliance-highlighter";
 import { SearchAndReplace } from "./search-and-replace";
 
 export type { EditorShortcutCallbacks } from "@/components/editor-shortcuts";
@@ -344,6 +345,40 @@ export interface EditorExtensionsOptions {
   autoConvertPunctuation?: () => boolean;
   /** 输入成对符号的左符号时是否自动补齐右符号 */
   autoPairSymbols?: () => boolean;
+  /** 合规检测配置 */
+  complianceOptions?: ComplianceHighlighterOptions;
+  /** 是否开启专注模式高亮活动段落 */
+  isFocusMode?: () => boolean;
+}
+
+function createActiveParagraphExtension(isFocusMode: () => boolean) {
+  return Extension.create({
+    name: "activeParagraphTracker",
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          props: {
+            decorations(state) {
+              if (!isFocusMode()) return DecorationSet.empty;
+              const { $from } = state.selection;
+              for (let d = $from.depth; d > 0; d--) {
+                const node = $from.node(d);
+                if (node.type.name === "paragraph") {
+                  const pos = $from.before(d);
+                  return DecorationSet.create(state.doc, [
+                    Decoration.node(pos, pos + node.nodeSize, {
+                      class: "is-active-paragraph",
+                    }),
+                  ]);
+                }
+              }
+              return DecorationSet.empty;
+            },
+          },
+        }),
+      ];
+    },
+  });
 }
 
 /**
@@ -403,6 +438,18 @@ export function createEditorExtensions(options: EditorExtensionsOptions = {}) {
     extensions.push(
       createAutoPairSymbols(autoPairSymbols, autoConvertPunctuation ?? (() => false)),
     );
+  }
+
+  // 网文合规检测与高亮扩展
+  if (options.complianceOptions) {
+    extensions.push(ComplianceHighlighter.configure(options.complianceOptions));
+  } else {
+    extensions.push(ComplianceHighlighter);
+  }
+
+  // 专注模式：追踪当前活动段落
+  if (options.isFocusMode) {
+    extensions.push(createActiveParagraphExtension(options.isFocusMode));
   }
 
   return extensions;

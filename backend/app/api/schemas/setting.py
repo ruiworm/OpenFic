@@ -154,6 +154,18 @@ class SettingsResponse(BaseModel):
         default=False,
         description="是否在章节编辑器中显示行号",
     )
+    editor_typewriter_mode: bool = Field(
+        default=False,
+        description="是否在章节编辑器中启用打字机居中模式",
+    )
+    editor_focus_mode: bool = Field(
+        default=False,
+        description="是否在章节编辑器中启用专注段落淡化模式",
+    )
+    editor_compliance_check: bool = Field(
+        default=False,
+        description="是否在章节编辑器中启用网文合规敏感词与错字扫描",
+    )
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -260,6 +272,18 @@ class SettingsUpdateRequest(BaseModel):
     editor_show_line_numbers: bool | None = Field(
         default=None,
         description="是否在章节编辑器中显示行号",
+    )
+    editor_typewriter_mode: bool | None = Field(
+        default=None,
+        description="是否在章节编辑器中启用打字机居中模式",
+    )
+    editor_focus_mode: bool | None = Field(
+        default=None,
+        description="是否在章节编辑器中启用专注段落淡化模式",
+    )
+    editor_compliance_check: bool | None = Field(
+        default=None,
+        description="是否在章节编辑器中启用网文合规敏感词与错字扫描",
     )
 
 

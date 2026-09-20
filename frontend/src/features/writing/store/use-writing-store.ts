@@ -22,7 +22,7 @@ interface WritingStore {
   expandedVolumeIds: Set<string>;
   hasHydratedExpandedVolumeIds: boolean;
   hasStoredExpandedVolumeIdsPreference: boolean;
-  sidebarView: "chapters" | "notes";
+  sidebarView: "chapters" | "notes" | "foreshadowings";
 
   // 拖拽排序临时数据：章节ID -> 新排序
   dragOrderMap: Record<string, number>;
@@ -40,7 +40,7 @@ interface WritingStore {
   hydrateExpandedVolumeIds: () => Promise<void>;
   setVolumeExpanded: (volumeId: string, expanded: boolean) => void;
   toggleVolumeExpanded: (volumeId: string) => void;
-  setSidebarView: (view: "chapters" | "notes") => void;
+  setSidebarView: (view: "chapters" | "notes" | "foreshadowings") => void;
   hydrateSidebarView: () => Promise<void>;
 }
 
@@ -172,8 +172,8 @@ export const useWritingStore = create<WritingStore>((set, get) => ({
 
   hydrateSidebarView: async () => {
     const rawValue = await getPreference(SIDEBAR_VIEW_KEY);
-    if (rawValue === "notes") {
-      set({ sidebarView: "notes" });
+    if (rawValue === "notes" || rawValue === "foreshadowings") {
+      set({ sidebarView: rawValue });
     }
   },
 }));

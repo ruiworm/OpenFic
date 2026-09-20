@@ -278,7 +278,9 @@
       "description": "The chapter will be appended to the end of the target volume."
     },
     "words": "words",
+    "chapters": "Chapters",
     "notes": "Notes",
+    "foreshadowings": "Foreshadowings",
     "newNote": "New Note",
     "importNotes": "Import notes",
     "exportNote": "Export note",

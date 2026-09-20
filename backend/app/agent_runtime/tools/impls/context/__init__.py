@@ -8,6 +8,11 @@ from app.agent_runtime.tools.impls.context.character import (
 from app.agent_runtime.tools.impls.context.read_chapter_summaries import (
     ReadChapterSummariesTool,
 )
+from app.agent_runtime.tools.impls.context.foreshadowing import (
+    ListForeshadowingsTool,
+    RecordForeshadowingTool,
+    ResolveForeshadowingTool,
+)
 from app.agent_runtime.tools.impls.context.read_range_summaries import (
     ReadRangeSummariesTool,
 )
@@ -27,6 +32,9 @@ __all__ = [
     "DeleteCharacterTool",
     "ReadChapterSummariesTool",
     "ReadRangeSummariesTool",
+    "ListForeshadowingsTool",
+    "RecordForeshadowingTool",
+    "ResolveForeshadowingTool",
     "ListWorldEntriesTool",
     "ReadWorldEntryTool",
     "CreateWorldEntryTool",

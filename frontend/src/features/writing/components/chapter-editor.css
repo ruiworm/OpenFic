@@ -1,0 +1,50 @@
+/**
+ * Chapter Editor Styles
+ *
+ * 合规高亮、打字机居中模式与专注模式样式
+ */
+
+/* 合规检测波浪线与背景高亮 */
+.compliance-highlight {
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0 1px;
+}
+
+.compliance-highlight-prohibited {
+  text-decoration: underline wavy var(--red-9);
+  text-decoration-thickness: 1.5px;
+  background-color: var(--red-a3);
+  color: var(--red-11);
+}
+
+.compliance-highlight-warning {
+  text-decoration: underline wavy var(--amber-9);
+  text-decoration-thickness: 1.5px;
+  background-color: var(--amber-a3);
+  color: var(--amber-11);
+}
+
+.compliance-highlight-typo {
+  text-decoration: underline wavy var(--blue-9);
+  text-decoration-thickness: 1.5px;
+  background-color: var(--blue-a3);
+  color: var(--blue-11);
+}
+
+/* 专注模式：非活动段落平滑淡化 */
+.chapter-editor-focus-mode .tiptap p {
+  opacity: 0.35;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chapter-editor-focus-mode .tiptap p.is-active-paragraph,
+.chapter-editor-focus-mode .tiptap p:focus-within,
+.chapter-editor-focus-mode .tiptap p:hover {
+  opacity: 1;
+}
+
+/* 打字机居中模式：增加底部留白，保证末尾段落也能滚到视平线 */
+.chapter-editor-typewriter-mode .tiptap {
+  padding-bottom: 50vh !important;
+}

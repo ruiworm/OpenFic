@@ -42,6 +42,7 @@ from app.storage.models.writing_activity_event import WritingActivityEvent
 from app.storage.models.note import Note, NoteCategory
 from app.storage.models.world_info import WorldInfo
 from app.storage.models.world_info_entry import WorldInfoEntry
+from app.storage.models.foreshadowing import Foreshadowing
 
 __all__ = [
     "LLMAuditLog",
@@ -82,4 +83,5 @@ __all__ = [
     "WritingActivityEvent",
     "WorldInfo",
     "WorldInfoEntry",
+    "Foreshadowing",
 ]
