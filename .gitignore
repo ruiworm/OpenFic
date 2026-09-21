@@ -34,3 +34,4 @@ desktop/dist-electron
 desktop/out
 *.pem
 scripts/keys/
+.run/

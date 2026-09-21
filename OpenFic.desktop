@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=OpenFic
+Comment=仓颉 · AI 交互式小说创作者工坊 (NovelForge)
+Exec=bash -c "cd /home/vere/OpenFic && ./start.sh start"
+Icon=/home/vere/OpenFic/frontend/public/pwa-icons/icon-512.png
+Terminal=true
+Type=Application
+Categories=Office;Development;TextEditor;
+StartupNotify=true
