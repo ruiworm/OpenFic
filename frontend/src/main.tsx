@@ -11,6 +11,7 @@ import { AppLayout } from "./features/app-shell";
 import { AuthPage } from "./features/auth";
 import { CharactersPage } from "./features/characters";
 import { DeconstructionPage } from "./features/deconstruction";
+import { MarketPage } from "./features/market";
 import { fetchSettings, updateSettings } from "./features/settings/lib/settings-api";
 import type { Settings } from "./features/settings/lib/settings.types";
 import { WorldInfoPage } from "./features/world-info";
@@ -229,6 +230,10 @@ function AppContent({
           <Route
             path="/deconstruction"
             element={<DeconstructionPage />}
+          />
+          <Route
+            path="/market"
+            element={<MarketPage />}
           />
           <Route
             path="/prompt-chains"

@@ -40,6 +40,7 @@ from app.api.routers import (
     foreshadowings,
     health,
     import_router,
+    market,
     model_icons,
     model_provider_catalog,
     model_providers,
@@ -715,6 +716,7 @@ def create_app() -> FastAPI:
     app.include_router(characters.router, prefix=app_settings.api_v1_prefix)
     app.include_router(foreshadowings.router, prefix=app_settings.api_v1_prefix)
     app.include_router(deconstructions.router, prefix=app_settings.api_v1_prefix)
+    app.include_router(market.router, prefix=app_settings.api_v1_prefix)
     app.include_router(world_info.router, prefix=app_settings.api_v1_prefix)
     app.include_router(world_info_entries.router, prefix=app_settings.api_v1_prefix)
     app.include_router(settings.router, prefix=app_settings.api_v1_prefix)

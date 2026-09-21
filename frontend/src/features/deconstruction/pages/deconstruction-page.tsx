@@ -3,10 +3,10 @@
  */
 
 import { Box, Flex, Heading, SegmentedControl } from "@radix-ui/themes";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { PanelLayoutLoading, toast } from "@/components";
 import { MobileAppSidebarTrigger, useAppShell } from "@/features/app-shell";
@@ -33,6 +33,7 @@ const PANEL_IDS = ["deconstruction-left", "deconstruction-right"] as const;
 export function DeconstructionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isMobile } = useAppShell();
 
   // 本地表单与分析状态
@@ -42,6 +43,18 @@ export function DeconstructionPage() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [reportMarkdown, setReportMarkdown] = useState("");
+
+  // 监听来自网文大盘扫榜等外部路由跳转传入的正文和书名
+  useEffect(() => {
+    const state = location.state as { title?: string; sourceTitle?: string; text?: string } | null;
+    if (state?.text) {
+      if (state.title) setTitle(state.title);
+      if (state.sourceTitle) setSourceTitle(state.sourceTitle);
+      setText(state.text);
+      setLeftTab("input");
+      navigate(".", { replace: true, state: {} });
+    }
+  }, [location.state, navigate]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(undefined);
 
