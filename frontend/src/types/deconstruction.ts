@@ -26,6 +26,7 @@ export interface DeconstructionListResponse {
 export interface DeconstructionStreamRequest {
   text: string;
   model_id?: string;
+  provider_id?: string;
   prompt_template?: string;
   title?: string;
   source_title?: string;

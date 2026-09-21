@@ -31,6 +31,7 @@ export function DeconstructionPage() {
   const [sourceTitle, setSourceTitle] = useState("");
   const [text, setText] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState("");
   const [reportMarkdown, setReportMarkdown] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(undefined);
@@ -63,6 +64,7 @@ export function DeconstructionPage() {
       {
         text: text.trim(),
         model_id: selectedModelId || undefined,
+        provider_id: selectedProviderId || undefined,
         title: title || undefined,
         source_title: sourceTitle || undefined,
       },
@@ -84,7 +86,7 @@ export function DeconstructionPage() {
       },
       controller.signal,
     );
-  }, [selectedModelId, sourceTitle, text, title, t]);
+  }, [selectedModelId, selectedProviderId, sourceTitle, text, title, t]);
 
   // 停止分析
   const handleStopAnalysis = useCallback(() => {
@@ -214,6 +216,8 @@ export function DeconstructionPage() {
           onTextChange={setText}
           selectedModelId={selectedModelId}
           onModelChange={setSelectedModelId}
+          selectedProviderId={selectedProviderId}
+          onProviderChange={setSelectedProviderId}
           isStreaming={isStreaming}
           onStartAnalysis={handleStartAnalysis}
           onStopAnalysis={handleStopAnalysis}

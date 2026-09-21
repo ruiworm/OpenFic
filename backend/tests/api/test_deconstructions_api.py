@@ -189,3 +189,19 @@ async def test_export_deconstruction_to_note(client: AsyncClient) -> None:
     notes_res = await client.get(f"/api/v1/projects/{project_id}/notes")
     assert notes_res.status_code == 200
     assert notes_res.json()["total_notes"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_stream_deconstruction_unconfigured_model(client: AsyncClient) -> None:
+    """测试在未配置可用 API Key 时发起拆书，SSE 流式返回友好错误。"""
+    res = await client.post(
+        "/api/v1/deconstructions/stream",
+        json={
+            "text": "测试小说样本内容",
+            "model_id": "non-existent-model-id",
+        },
+    )
+    assert res.status_code == 200
+    content = res.text
+    assert "error" in content
+

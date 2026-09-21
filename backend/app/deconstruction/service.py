@@ -8,12 +8,16 @@ from typing import Any, AsyncGenerator
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.background.llm.resolver import resolve_background_llm
+from app.core.encryption import EncryptionService
 from app.core.errors import NotFoundError
 from app.deconstruction.prompt import (
     DEFAULT_DECONSTRUCTION_PROMPT,
     build_deconstruction_messages,
 )
+from app.models.clients import LLMClient, LLMConfig
+from app.models.repos import model_provider_repo, model_repo
+from app.models.services.model_provider_service import ModelProviderService
+from app.settings import settings
 from app.storage.models.character import Character
 from app.storage.models.deconstruction import Deconstruction
 from app.storage.models.note import Note
@@ -25,6 +29,7 @@ from app.storage.repos import (
     deconstruction_repo,
     note_repo,
     project_repo,
+    setting_repo,
     volume_repo,
     world_info_entry_repo,
     world_info_repo,
@@ -32,10 +37,154 @@ from app.storage.repos import (
 from app.storage.services import chapter_service, volume_service
 
 
+async def resolve_deconstruction_llm(
+    session: AsyncSession,
+    *,
+    model_id: str | None = None,
+    provider_id: str | None = None,
+) -> LLMClient:
+    """
+    智能解析用于拆书分析的 LLM 客户端：
+    1. 优先使用传入的 provider_id（直接解密该服务商用户配置的 API Key 并配合指定 model_id/模型名称）；
+    2. 支持 model_id 格式形如 'provider_id::model_name' 的组合参数；
+    3. 支持 model_id 匹配已登记的本地模型 ID；
+    4. 兜底回退到系统 default_model，或寻找用户已配置 API Key 的第一个有效服务商。
+    """
+    encryption_service = EncryptionService(settings.encryption_key)
+    provider_service = ModelProviderService(encryption_service)
+
+    # 1. 检查 model_id 是否带有 provider 前缀 "provider_id::model_name"
+    target_provider_id = provider_id
+    target_model_name = model_id
+
+    if target_model_name and "::" in target_model_name:
+        parts = target_model_name.split("::", 1)
+        if not target_provider_id:
+            target_provider_id = parts[0]
+        target_model_name = parts[1]
+
+    # 2. 如果指定了 provider_id
+    if target_provider_id:
+        provider = await model_provider_repo.get_by_id(session, target_provider_id)
+        if not provider:
+            raise ValueError(f"指定的模型服务商不存在 (ID: {target_provider_id})")
+
+        api_key = encryption_service.decrypt(provider.api_key_encrypted)
+        if not api_key or not api_key.strip():
+            raise ValueError(f"服务商「{provider.name}」尚未配置有效 API Key，请在设置中配置 API Key 后再试")
+
+        custom_headers = provider_service.get_decrypted_custom_headers(provider)
+        actual_model_name = target_model_name
+        if not actual_model_name or actual_model_name == "default":
+            registered = await model_repo.get_by_provider_id(session, provider.id)
+            llm_registered = [m for m in registered if m.task_type == "llm"]
+            if llm_registered:
+                actual_model_name = llm_registered[0].model_id
+            else:
+                if provider.provider_type == "deepseek":
+                    actual_model_name = "deepseek-chat"
+                elif provider.provider_type in ("openai", "azure"):
+                    actual_model_name = "gpt-4o"
+                elif provider.provider_type == "anthropic":
+                    actual_model_name = "claude-3-5-sonnet-20241022"
+                elif provider.provider_type == "google_genai":
+                    actual_model_name = "gemini-1.5-pro"
+                else:
+                    actual_model_name = "default"
+
+        return LLMClient(
+            LLMConfig(
+                provider_type=provider.provider_type,
+                base_url=provider.url,
+                api_key=api_key,
+                model_id=actual_model_name,
+                custom_headers=custom_headers or None,
+                request_timeout=int(settings.llm_request_timeout),
+            )
+        )
+
+    # 3. 如果指定了已登记的 model_id (通过 model_repo 查找)
+    if target_model_name:
+        model = await model_repo.get_by_id(session, target_model_name)
+        if model:
+            provider = await model_provider_repo.get_by_id(session, model.provider_id)
+            if not provider:
+                raise ValueError(f"模型关联的服务商不存在 (ID: {model.provider_id})")
+            api_key = encryption_service.decrypt(provider.api_key_encrypted)
+            if not api_key or not api_key.strip():
+                raise ValueError(f"服务商「{provider.name}」尚未配置有效 API Key，请在设置中配置 API Key 后再试")
+            custom_headers = provider_service.get_decrypted_custom_headers(provider)
+            return LLMClient(
+                LLMConfig(
+                    provider_type=provider.provider_type,
+                    base_url=provider.url,
+                    api_key=api_key,
+                    model_id=model.model_id,
+                    custom_headers=custom_headers or None,
+                    temperature=model.temperature,
+                    top_p=model.top_p,
+                    top_k=model.top_k,
+                    min_p=model.min_p,
+                    top_a=model.top_a,
+                    max_tokens=model.max_tokens,
+                    frequency_penalty=model.frequency_penalty,
+                    presence_penalty=model.presence_penalty,
+                    repetition_penalty=model.repetition_penalty,
+                    request_timeout=int(settings.llm_request_timeout),
+                )
+            )
+
+    # 4. 尝试通过 default_model 设置
+    default_setting = await setting_repo.get_by_key(session, "default_model")
+    if default_setting and default_setting.value and default_setting.value.strip():
+        def_model = await model_repo.get_by_id(session, default_setting.value.strip())
+        if def_model:
+            provider = await model_provider_repo.get_by_id(session, def_model.provider_id)
+            if provider and provider.api_key_encrypted:
+                api_key = encryption_service.decrypt(provider.api_key_encrypted)
+                if api_key and api_key.strip():
+                    custom_headers = provider_service.get_decrypted_custom_headers(provider)
+                    return LLMClient(
+                        LLMConfig(
+                            provider_type=provider.provider_type,
+                            base_url=provider.url,
+                            api_key=api_key,
+                            model_id=def_model.model_id,
+                            custom_headers=custom_headers or None,
+                            request_timeout=int(settings.llm_request_timeout),
+                        )
+                    )
+
+    # 5. 寻找第一个配置了 API Key 的外部服务商
+    all_providers = await model_provider_repo.get_all(session)
+    for prov in all_providers:
+        if prov.is_builtin:
+            continue
+        api_key = encryption_service.decrypt(prov.api_key_encrypted)
+        if api_key and api_key.strip():
+            custom_headers = provider_service.get_decrypted_custom_headers(prov)
+            registered = await model_repo.get_by_provider_id(session, prov.id)
+            llm_models = [m for m in registered if m.task_type == "llm"]
+            fallback_model = llm_models[0].model_id if llm_models else "default"
+            return LLMClient(
+                LLMConfig(
+                    provider_type=prov.provider_type,
+                    base_url=prov.url,
+                    api_key=api_key,
+                    model_id=fallback_model,
+                    custom_headers=custom_headers or None,
+                    request_timeout=int(settings.llm_request_timeout),
+                )
+            )
+
+    raise ValueError("尚未配置任何大语言模型 API Key。请在「系统设置 -> 外部连接」中配置 API Key 后再试。")
+
+
 async def stream_deconstruction_analysis(
     session: AsyncSession,
     text: str,
     model_id: str | None = None,
+    provider_id: str | None = None,
     prompt_template: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """
@@ -44,16 +193,22 @@ async def stream_deconstruction_analysis(
     Yields:
         SSE 格式字符串: data: {"content": "..."}\n\n
     """
-    resolved_llm = await resolve_background_llm(
-        session,
-        model_policy="default_model",
-        model_id=model_id,
-    )
+    try:
+        llm_client = await resolve_deconstruction_llm(
+            session,
+            model_id=model_id,
+            provider_id=provider_id,
+        )
+    except Exception as exc:
+        logger.error(f"解析拆书大模型失败: {exc}")
+        error_payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
+        yield f"data: {error_payload}\n\n"
+        return
 
     messages = build_deconstruction_messages(text, prompt_template)
 
     try:
-        async for chunk in resolved_llm.client.generate_stream_chunks(messages):
+        async for chunk in llm_client.generate_stream_chunks(messages):
             if chunk.content:
                 payload = json.dumps({"content": chunk.content}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"

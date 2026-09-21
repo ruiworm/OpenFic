@@ -10,6 +10,7 @@ class DeconstructionStreamRequest(BaseModel):
 
     text: str = Field(description="待拆解的小说正文/样章文本", min_length=1)
     model_id: str | None = Field(default=None, description="指定调用的模型 ID，未指定则使用系统默认模型")
+    provider_id: str | None = Field(default=None, description="指定调用的提供商/API Key 连接 ID")
     prompt_template: str | None = Field(default=None, description="自定义拆书提示词模板，未指定则使用内置 22 维黄金分析师模板")
     title: str | None = Field(default=None, description="分析报告标题")
     source_title: str | None = Field(default=None, description="原书名或来源标签")

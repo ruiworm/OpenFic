@@ -16,17 +16,65 @@ import {
 } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Upload,
+  AlertCircle,
+  KeyRound,
   Play,
+  Sparkles,
   Square,
   Trash2,
-  Sparkles,
+  Upload,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { fetchModels } from "@/features/settings/lib/model-api";
+import { useAppShell } from "@/features/app-shell/components/app-shell-context";
+import { fetchModels, fetchProviders } from "@/features/settings/lib/model-api";
 import { fetchSettings } from "@/features/settings/lib/settings-api";
+import type { ModelProvider } from "@/lib/model.types";
+
+interface SimpleModelOption {
+  id: string;
+  modelId: string;
+  name: string;
+  contextLength?: number;
+}
+
+function getFallbackModels(provider: ModelProvider): SimpleModelOption[] {
+  const pType = provider.providerType;
+  if (pType === "deepseek") {
+    return [
+      { id: "deepseek-chat", modelId: "deepseek-chat", name: "DeepSeek-V3", contextLength: 128000 },
+      { id: "deepseek-reasoner", modelId: "deepseek-reasoner", name: "DeepSeek-R1", contextLength: 128000 },
+    ];
+  }
+  if (pType === "openai" || pType === "azure") {
+    return [
+      { id: "gpt-4o", modelId: "gpt-4o", name: "GPT-4o", contextLength: 128000 },
+      { id: "gpt-4o-mini", modelId: "gpt-4o-mini", name: "GPT-4o mini", contextLength: 128000 },
+    ];
+  }
+  if (pType === "anthropic") {
+    return [
+      { id: "claude-3-5-sonnet-20241022", modelId: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", contextLength: 200000 },
+      { id: "claude-3-5-haiku-20241022", modelId: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", contextLength: 200000 },
+    ];
+  }
+  if (pType === "google_genai") {
+    return [
+      { id: "gemini-1.5-pro", modelId: "gemini-1.5-pro", name: "Gemini 1.5 Pro", contextLength: 1000000 },
+      { id: "gemini-1.5-flash", modelId: "gemini-1.5-flash", name: "Gemini 1.5 Flash", contextLength: 1000000 },
+    ];
+  }
+  if (pType === "openrouter") {
+    return [
+      { id: "deepseek/deepseek-chat", modelId: "deepseek/deepseek-chat", name: "DeepSeek V3", contextLength: 128000 },
+      { id: "anthropic/claude-3.5-sonnet", modelId: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet", contextLength: 200000 },
+    ];
+  }
+  return [
+    { id: "default", modelId: "default", name: `${provider.name} 默认模型`, contextLength: 128000 },
+  ];
+}
 
 interface DeconstructionInputPanelProps {
   title: string;
@@ -37,6 +85,8 @@ interface DeconstructionInputPanelProps {
   onTextChange: (v: string) => void;
   selectedModelId: string;
   onModelChange: (v: string) => void;
+  selectedProviderId: string;
+  onProviderChange: (v: string) => void;
   isStreaming: boolean;
   onStartAnalysis: () => void;
   onStopAnalysis: () => void;
@@ -52,28 +102,96 @@ export function DeconstructionInputPanel({
   onTextChange,
   selectedModelId,
   onModelChange,
+  selectedProviderId,
+  onProviderChange,
   isStreaming,
   onStartAnalysis,
   onStopAnalysis,
   onClear,
 }: DeconstructionInputPanelProps) {
   const { t } = useTranslation();
+  const { openSettings } = useAppShell();
   const [inputTab, setInputTab] = useState<"paste" | "upload">("paste");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 获取模型列表
-  const { data: models = [] } = useQuery({
-    queryKey: ["models"],
-    queryFn: () => fetchModels(),
+  // 获取用户配置的所有服务商（有 API Key 的外部服务商）
+  const { data: providers = [] } = useQuery({
+    queryKey: ["model-providers"],
+    queryFn: fetchProviders,
   });
 
-  // 获取默认设置
+  const configuredProviders = useMemo(
+    () => providers.filter((p) => !p.isBuiltin),
+    [providers],
+  );
+
+  // 获取所有 LLM 模型
+  const { data: models = [] } = useQuery({
+    queryKey: ["models", "llm"],
+    queryFn: () => fetchModels(undefined, "llm"),
+  });
+
+  // 获取全局默认设置
   const { data: settings } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
 
-  const activeModelId = selectedModelId || settings?.defaultModel || (models[0]?.id ?? "");
+  // 计算当前激活的复合选项值 (provider_id::model_id)
+  const activeValue = useMemo(() => {
+    if (selectedProviderId && selectedModelId) {
+      return `${selectedProviderId}::${selectedModelId}`;
+    }
+    if (selectedModelId) {
+      for (const p of configuredProviders) {
+        const pModels = models.filter((m) => m.providerId === p.id);
+        const matched = pModels.find((m) => m.id === selectedModelId || m.modelId === selectedModelId);
+        if (matched) {
+          return `${p.id}::${matched.modelId || matched.id}`;
+        }
+      }
+    }
+    // 优先采用系统设置中的默认模型
+    if (settings?.defaultModel) {
+      for (const p of configuredProviders) {
+        const pModels = models.filter((m) => m.providerId === p.id);
+        const matched = pModels.find(
+          (m) => m.id === settings.defaultModel || m.modelId === settings.defaultModel,
+        );
+        if (matched) {
+          return `${p.id}::${matched.modelId || matched.id}`;
+        }
+      }
+    }
+    if (configuredProviders.length > 0) {
+      const firstP = configuredProviders[0];
+      const pModels = models.filter((m) => m.providerId === firstP.id);
+      const firstM = pModels.length > 0 ? pModels[0] : getFallbackModels(firstP)[0];
+      if (firstM) {
+        return `${firstP.id}::${firstM.modelId || firstM.id}`;
+      }
+    }
+    return "";
+  }, [configuredProviders, models, selectedModelId, selectedProviderId, settings?.defaultModel]);
+
+  // 同步初始化默认模型
+  useEffect(() => {
+    if (!selectedModelId && activeValue && activeValue.includes("::")) {
+      const [pId, mId] = activeValue.split("::", 2);
+      onProviderChange(pId);
+      onModelChange(mId);
+    }
+  }, [activeValue, onModelChange, onProviderChange, selectedModelId]);
+
+  const handleSelectChange = (val: string) => {
+    if (val.includes("::")) {
+      const [pId, mId] = val.split("::", 2);
+      onProviderChange(pId);
+      onModelChange(mId);
+    } else {
+      onModelChange(val);
+    }
+  };
 
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
@@ -135,45 +253,118 @@ export function DeconstructionInputPanel({
         </Flex>
       </Box>
 
-      {/* 模型选择与内置分析师预设标识 */}
-      <Flex align="center" justify="between" gap="3" wrap="wrap">
-        <Flex align="center" gap="2" style={{ flex: 1, minWidth: 200 }}>
-          <Text size="1" color="gray" weight="medium" style={{ flexShrink: 0 }}>
-            {t("deconstruction.selectModel", "分析模型：")}
-          </Text>
-          <Select.Root
-            size="2"
-            value={activeModelId}
-            onValueChange={onModelChange}
-            disabled={isStreaming}
-          >
-            <Select.Trigger style={{ flex: 1, minWidth: 0 }} />
-            <Select.Content>
-              {models.map((m) => (
-                <Select.Item key={m.id} value={m.id}>
-                  {m.name || m.modelId} ({m.providerId})
-                </Select.Item>
-              ))}
-            </Select.Content>
-          </Select.Root>
-        </Flex>
-
-        <Badge
-          variant="surface"
-          color="indigo"
-          size="2"
+      {/* 模型选择与 API Key 配置状态 */}
+      {configuredProviders.length === 0 ? (
+        <Flex
+          direction="column"
+          gap="2"
+          p="3"
           style={{
+            background: "var(--amber-a2)",
             borderRadius: "8px",
-            padding: "4px 8px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
+            border: "1px dashed var(--amber-a6)",
           }}
         >
-          <Sparkles size={12} />
-          {t("deconstruction.builtinPresetBadge", "22 维金牌小说拆解预设")}
-        </Badge>
-      </Flex>
+          <Flex align="center" justify="between" gap="2">
+            <Flex align="center" gap="2">
+              <AlertCircle size={15} color="var(--amber-10)" />
+              <Text size="2" weight="bold" color="amber">
+                {t("deconstruction.noApiKeyTitle", "尚未配置大模型 API Key")}
+              </Text>
+            </Flex>
+            <Button
+              size="1"
+              color="amber"
+              variant="solid"
+              type="button"
+              onClick={() => openSettings({ category: "connections" })}
+            >
+              <KeyRound size={13} />
+              {t("deconstruction.configureApiKeyNow", "立即配置 API Key")}
+            </Button>
+          </Flex>
+          <Text size="1" color="gray">
+            {t(
+              "deconstruction.noApiKeyDesc",
+              "拆书深度分析需要调用大语言模型。支持 DeepSeek、OpenAI、Claude、硅基流动等任意服务商，点击按钮即可直接填入 API Key。",
+            )}
+          </Text>
+        </Flex>
+      ) : (
+        <Flex align="center" justify="between" gap="2" wrap="wrap">
+          <Flex align="center" gap="2" style={{ flex: 1, minWidth: 260 }}>
+            <Text size="1" color="gray" weight="medium" style={{ flexShrink: 0 }}>
+              {t("deconstruction.selectModel", "分析模型：")}
+            </Text>
+            <Select.Root
+              size="2"
+              value={activeValue}
+              onValueChange={handleSelectChange}
+              disabled={isStreaming}
+            >
+              <Select.Trigger style={{ flex: 1, minWidth: 0 }} />
+              <Select.Content>
+                {configuredProviders.map((provider) => {
+                  const pModels = models.filter((m) => m.providerId === provider.id);
+                  const displayModels = pModels.length > 0 ? pModels : getFallbackModels(provider);
+                  return (
+                    <Select.Group key={provider.id}>
+                      <Select.Label>
+                        <Flex align="center" gap="1" style={{ color: "var(--indigo-11)", fontWeight: 600 }}>
+                          <KeyRound size={12} />
+                          <span>
+                            {provider.name} ({t("deconstruction.configuredKeyBadge", "已配置 API Key")})
+                          </span>
+                        </Flex>
+                      </Select.Label>
+                      {displayModels.map((m) => {
+                        const mId = m.modelId || m.id;
+                        const itemValue = `${provider.id}::${mId}`;
+                        const ctx = m.contextLength ? ` (${Math.round(m.contextLength / 1000)}k)` : "";
+                        return (
+                          <Select.Item key={itemValue} value={itemValue}>
+                            {m.name || mId}{ctx}
+                          </Select.Item>
+                        );
+                      })}
+                    </Select.Group>
+                  );
+                })}
+              </Select.Content>
+            </Select.Root>
+            <Tooltip content={t("deconstruction.manageApiKeyTip", "配置或管理您的模型服务商与 API Key")}>
+              <Button
+                size="2"
+                variant="surface"
+                color="gray"
+                type="button"
+                onClick={() => openSettings({ category: "connections" })}
+                disabled={isStreaming}
+                style={{ flexShrink: 0 }}
+              >
+                <KeyRound size={13} />
+                {t("deconstruction.manageApiKeyBtn", "管理 API Key")}
+              </Button>
+            </Tooltip>
+          </Flex>
+
+          <Badge
+            variant="surface"
+            color="indigo"
+            size="2"
+            style={{
+              borderRadius: "8px",
+              padding: "4px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+            }}
+          >
+            <Sparkles size={12} />
+            {t("deconstruction.builtinPresetBadge", "22 维金牌小说拆解预设")}
+          </Badge>
+        </Flex>
+      )}
 
       {/* 输入方式切换 */}
       <Flex justify="between" align="center">
@@ -276,6 +467,17 @@ export function DeconstructionInputPanel({
           >
             <Square size={16} />
             {t("deconstruction.stopBtn", "停止生成")}
+          </Button>
+        ) : configuredProviders.length === 0 ? (
+          <Button
+            size="3"
+            color="amber"
+            variant="soft"
+            style={{ flex: 1 }}
+            onClick={() => openSettings({ category: "connections" })}
+          >
+            <KeyRound size={16} />
+            {t("deconstruction.configureApiKeyNow", "立即配置 API Key 后开始拆解")}
           </Button>
         ) : (
           <Button

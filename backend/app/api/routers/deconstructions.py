@@ -49,12 +49,15 @@ async def stream_deconstruction(
     """
     提供小说正文/样章文本，通过 SSE 格式实时流式返回 22 维拆书分析报告。
     """
-    logger.info(f"发起小说拆书分析: text_length={len(payload.text)}, model_id={payload.model_id}")
+    logger.info(
+        f"发起小说拆书分析: text_length={len(payload.text)}, model_id={payload.model_id}, provider_id={payload.provider_id}"
+    )
 
     stream_generator = stream_deconstruction_analysis(
         session=session,
         text=payload.text,
         model_id=payload.model_id,
+        provider_id=payload.provider_id,
         prompt_template=payload.prompt_template,
     )
 
