@@ -1,30 +1,39 @@
 /**
- * 拆书工坊主页面 (Book Deconstruction Workshop)
+ * 拆书工坊主页面 (对齐全站 UI 规范与弹性拖拽分栏)
  */
 
-import { Box } from "@radix-ui/themes";
+import { Box, Flex, Heading, SegmentedControl } from "@radix-ui/themes";
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { useNavigate } from "react-router";
 
-import { toast } from "@/components";
+import { PanelLayoutLoading, toast } from "@/components";
+import { MobileAppSidebarTrigger, useAppShell } from "@/features/app-shell";
+import { usePersistedPanelLayout } from "@/hooks/use-persisted-panel-layout";
+import type { Deconstruction } from "@/types/deconstruction";
+
 import { CreateProjectDialog } from "../components/create-project-dialog";
-import { DeconstructionHistoryDrawer } from "../components/deconstruction-history-drawer";
 import { DeconstructionInputPanel } from "../components/deconstruction-input-panel";
 import { DeconstructionReportView } from "../components/deconstruction-report-view";
 import {
   useCreateProjectFromDeconstruction,
+  useDeconstructionHistory,
+  useDeleteDeconstruction,
   useExportDeconstructionToNote,
   useSaveDeconstruction,
 } from "../hooks/use-deconstruction";
 import { streamDeconstruction } from "../lib/deconstruction-api";
-import type { Deconstruction } from "@/types/deconstruction";
 
 import "./deconstruction-page.css";
+
+const PANEL_LAYOUT_KEY = "panel-layout.deconstruction";
+const PANEL_IDS = ["deconstruction-left", "deconstruction-right"] as const;
 
 export function DeconstructionPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { isMobile } = useAppShell();
 
   // 本地表单与分析状态
   const [title, setTitle] = useState("");
@@ -36,24 +45,42 @@ export function DeconstructionPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(undefined);
 
+  // 左侧面板模式：新建拆解 vs 历史库
+  const [leftTab, setLeftTab] = useState<"input" | "history">("input");
+  const [historySearch, setHistorySearch] = useState("");
+
+  // 移动端视图切换：输入 vs 报告
+  const [mobileActiveTab, setMobileActiveTab] = useState<"input" | "report">("input");
+
   // 对话框状态
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Mutations
+  // 持久化拖拽面板尺寸
+  const panelLayout = usePersistedPanelLayout(PANEL_LAYOUT_KEY, PANEL_IDS, !isMobile);
+
+  // 数据服务与变更 Hooks
+  const { data: historyData, isLoading: isHistoryLoading } = useDeconstructionHistory(historySearch);
+  const deleteMutation = useDeleteDeconstruction();
   const saveMutation = useSaveDeconstruction();
   const createProjectMutation = useCreateProjectFromDeconstruction();
   const exportNoteMutation = useExportDeconstructionToNote();
 
-  // 开始分析
+  const historyItems = historyData?.items ?? [];
+
+  // 开始深度拆解分析
   const handleStartAnalysis = useCallback(() => {
     if (!text.trim()) return;
 
     setIsStreaming(true);
     setReportMarkdown("");
     setSavedId(undefined);
+
+    // 移动端自动切至报告视图
+    if (isMobile) {
+      setMobileActiveTab("report");
+    }
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -86,7 +113,7 @@ export function DeconstructionPage() {
       },
       controller.signal,
     );
-  }, [selectedModelId, selectedProviderId, sourceTitle, text, title, t]);
+  }, [isMobile, selectedModelId, selectedProviderId, sourceTitle, t, text, title]);
 
   // 停止分析
   const handleStopAnalysis = useCallback(() => {
@@ -105,7 +132,34 @@ export function DeconstructionPage() {
     setSourceTitle("");
   }, []);
 
-  // 保存分析报告
+  // 从历史记录载入报告
+  const handleSelectReport = (report: Deconstruction) => {
+    setTitle(report.title);
+    setSourceTitle(report.source_title);
+    setText(report.source_text || "");
+    setReportMarkdown(report.report_markdown);
+    setSelectedModelId(report.model_id);
+    setSavedId(report.id);
+
+    if (isMobile) {
+      setMobileActiveTab("report");
+    }
+  };
+
+  // 删除历史报告
+  const handleDeleteReport = async (id: string) => {
+    try {
+      await deleteMutation.mutateAsync(id);
+      if (savedId === id) {
+        setSavedId(undefined);
+      }
+      toast.success(t("common.deleteSuccess", "已成功删除该拆书报告"));
+    } catch {
+      toast.error(t("common.deleteFailed", "删除失败"));
+    }
+  };
+
+  // 保存当前拆书报告
   const handleSaveReport = async () => {
     if (!reportMarkdown) return;
     try {
@@ -132,7 +186,6 @@ export function DeconstructionPage() {
   ) => {
     try {
       let targetId = savedId;
-      // 如果尚未保存，先自动保存入库
       if (!targetId) {
         const saved = await saveMutation.mutateAsync({
           title: title || `《${sourceTitle || "未知作品"}》深度拆解`,
@@ -164,7 +217,7 @@ export function DeconstructionPage() {
     }
   };
 
-  // 归档到项目笔记
+  // 归档到已有项目笔记
   const handleExportToNote = async (targetProjectId: string) => {
     try {
       let targetId = savedId;
@@ -193,53 +246,113 @@ export function DeconstructionPage() {
     }
   };
 
-  // 从历史记录加载
-  const handleSelectReport = (report: Deconstruction) => {
-    setTitle(report.title);
-    setSourceTitle(report.source_title);
-    setText(report.source_text || "");
-    setReportMarkdown(report.report_markdown);
-    setSelectedModelId(report.model_id);
-    setSavedId(report.id);
-  };
+  if (!isMobile && !panelLayout.isLoaded) {
+    return <PanelLayoutLoading />;
+  }
+
+  const leftContent = (
+    <DeconstructionInputPanel
+      title={title}
+      onTitleChange={setTitle}
+      sourceTitle={sourceTitle}
+      onSourceTitleChange={setSourceTitle}
+      text={text}
+      onTextChange={setText}
+      selectedModelId={selectedModelId}
+      onModelChange={setSelectedModelId}
+      selectedProviderId={selectedProviderId}
+      onProviderChange={setSelectedProviderId}
+      isStreaming={isStreaming}
+      onStartAnalysis={handleStartAnalysis}
+      onStopAnalysis={handleStopAnalysis}
+      onClear={handleClear}
+      activeTab={leftTab}
+      onActiveTabChange={setLeftTab}
+      selectedReportId={savedId}
+      onSelectReport={handleSelectReport}
+      historyItems={historyItems}
+      isHistoryLoading={isHistoryLoading}
+      onDeleteReport={handleDeleteReport}
+      historySearch={historySearch}
+      onHistorySearchChange={setHistorySearch}
+    />
+  );
+
+  const rightContent = (
+    <DeconstructionReportView
+      title={title}
+      sourceTitle={sourceTitle}
+      reportMarkdown={reportMarkdown}
+      isStreaming={isStreaming}
+      savedId={savedId}
+      onOpenCreateProject={() => setCreateProjectOpen(true)}
+      onOpenHistory={() => setLeftTab("history")}
+      onSaveReport={handleSaveReport}
+      onExportToNote={handleExportToNote}
+      isSaving={saveMutation.isPending}
+    />
+  );
 
   return (
     <Box className="deconstruction-page">
-      {/* 左侧控制与输入区 */}
-      <Box className="deconstruction-page__left">
-        <DeconstructionInputPanel
-          title={title}
-          onTitleChange={setTitle}
-          sourceTitle={sourceTitle}
-          onSourceTitleChange={setSourceTitle}
-          text={text}
-          onTextChange={setText}
-          selectedModelId={selectedModelId}
-          onModelChange={setSelectedModelId}
-          selectedProviderId={selectedProviderId}
-          onProviderChange={setSelectedProviderId}
-          isStreaming={isStreaming}
-          onStartAnalysis={handleStartAnalysis}
-          onStopAnalysis={handleStopAnalysis}
-          onClear={handleClear}
-        />
-      </Box>
+      {!isMobile ? (
+        /* 桌面端：标准 Resizable 双栏 */
+        <Group
+          orientation="horizontal"
+          className="deconstruction-page-body"
+          defaultLayout={panelLayout.defaultLayout}
+          onLayoutChanged={panelLayout.onLayoutChanged}
+        >
+          <Panel
+            id="deconstruction-left"
+            defaultSize={35}
+            minSize={25}
+            maxSize={55}
+            collapsible={false}
+          >
+            <Box className="deconstruction-panel">{leftContent}</Box>
+          </Panel>
 
-      {/* 右侧分析与仿写看板区 */}
-      <Box className="deconstruction-page__right">
-        <DeconstructionReportView
-          title={title}
-          sourceTitle={sourceTitle}
-          reportMarkdown={reportMarkdown}
-          isStreaming={isStreaming}
-          savedId={savedId}
-          onOpenCreateProject={() => setCreateProjectOpen(true)}
-          onOpenHistory={() => setHistoryOpen(true)}
-          onSaveReport={handleSaveReport}
-          onExportToNote={handleExportToNote}
-          isSaving={saveMutation.isPending}
-        />
-      </Box>
+          <Separator className="resize-handle deconstruction-page-separator" />
+
+          <Panel id="deconstruction-right" minSize={40}>
+            <Box className="deconstruction-panel">{rightContent}</Box>
+          </Panel>
+        </Group>
+      ) : (
+        /* 移动端：标准顶栏 + 选项卡平滑切换 */
+        <Flex className="deconstruction-page-body" direction="column">
+          <Flex
+            align="center"
+            justify="between"
+            className="deconstruction-page-mobile-topbar"
+          >
+            <Flex align="center" gap="2">
+              <MobileAppSidebarTrigger />
+              <Heading size="3">
+                {t("topbar.deconstruction", "拆书仿写")}
+              </Heading>
+            </Flex>
+
+            <SegmentedControl.Root
+              size="1"
+              value={mobileActiveTab}
+              onValueChange={(v) => setMobileActiveTab(v as "input" | "report")}
+            >
+              <SegmentedControl.Item value="input">
+                {t("deconstruction.mobileTabInput", "输入/历史")}
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value="report">
+                {t("deconstruction.mobileTabReport", "分析报告")}
+              </SegmentedControl.Item>
+            </SegmentedControl.Root>
+          </Flex>
+
+          <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {mobileActiveTab === "input" ? leftContent : rightContent}
+          </Box>
+        </Flex>
+      )}
 
       {/* 转化为新书弹窗 */}
       <CreateProjectDialog
@@ -249,13 +362,6 @@ export function DeconstructionPage() {
         defaultDescription=""
         loading={createProjectMutation.isPending}
         onSubmit={handleConfirmCreateProject}
-      />
-
-      {/* 历史记录抽屉 */}
-      <DeconstructionHistoryDrawer
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        onSelectReport={handleSelectReport}
       />
     </Box>
   );

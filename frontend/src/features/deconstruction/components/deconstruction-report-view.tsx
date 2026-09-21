@@ -1,5 +1,5 @@
 /**
- * 拆书分析报告展示面板
+ * 拆书分析报告展示面板 (对齐全站 UI 规范)
  */
 
 import {
@@ -9,6 +9,7 @@ import {
   Dialog,
   Flex,
   Heading,
+  IconButton,
   ScrollArea,
   Select,
   Text,
@@ -19,9 +20,9 @@ import {
   Copy,
   Download,
   FileCheck2,
-  FileSearch,
   History,
   Save,
+  ScanText,
   Share2,
   Sparkles,
 } from "lucide-react";
@@ -38,7 +39,7 @@ interface DeconstructionReportViewProps {
   isStreaming: boolean;
   savedId?: string;
   onOpenCreateProject: () => void;
-  onOpenHistory: () => void;
+  onOpenHistory?: () => void;
   onSaveReport: () => void;
   onExportToNote: (projectId: string) => void;
   isSaving: boolean;
@@ -126,51 +127,36 @@ export function DeconstructionReportView({
   };
 
   return (
-    <Flex direction="column" style={{ height: "100%", background: "var(--color-background)" }}>
-      {/* 顶部工具栏 */}
-      <Flex
-        align="center"
-        justify="between"
-        p="3"
-        style={{
-          borderBottom: "1px solid var(--gray-a4)",
-          background: "var(--gray-a2)",
-          flexShrink: 0,
-        }}
-      >
-        <Flex align="center" gap="2">
-          <Heading size="3">
+    <Box className="deconstruction-right-panel">
+      {/* 统一顶栏 */}
+      <Box className="deconstruction-right-header">
+        <Flex align="center" gap="2" style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+          <Heading size="3" weight="bold" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title || t("deconstruction.defaultReportTitle", "小说深度拆解分析报告")}
           </Heading>
           {isStreaming ? (
-            <Badge color="amber" variant="surface">
+            <Badge color="amber" variant="surface" size="1">
               <Sparkles size={12} className="animate-spin" />
               {t("deconstruction.statusAnalyzing", "正在深度拆解分析中...")}
             </Badge>
           ) : reportMarkdown ? (
-            <Badge color="green" variant="surface">
+            <Badge color="green" variant="surface" size="1">
               <FileCheck2 size={12} />
               {t("deconstruction.statusComplete", "分析已完成")}
             </Badge>
           ) : null}
         </Flex>
 
-        <Flex align="center" gap="2">
+        <Flex align="center" gap="2" style={{ flexShrink: 0 }}>
           {reportMarkdown && (
             <>
-              {/* 核心杀手级功能：一键转化为新书 */}
+              {/* 核心功能：一键转化为新书 */}
               <Button
                 size="2"
-                style={{
-                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
-                  color: "#ffffff",
-                  fontWeight: 600,
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                }}
+                variant="solid"
                 onClick={onOpenCreateProject}
                 disabled={isStreaming}
+                style={{ cursor: "pointer" }}
               >
                 <BookPlus size={15} />
                 {t("deconstruction.createProjectBtn", "一键转化为新书 (仿写脚手架)")}
@@ -183,13 +169,13 @@ export function DeconstructionReportView({
                 color="gray"
                 onClick={() => setNoteExportOpen(true)}
                 disabled={isStreaming}
-                style={{ borderRadius: "8px", cursor: "pointer" }}
+                style={{ cursor: "pointer" }}
               >
                 <Share2 size={14} />
                 {t("deconstruction.exportToNoteBtn", "归档到项目笔记")}
               </Button>
 
-              {/* 保存报告到历史 */}
+              {/* 保存报告 */}
               <Tooltip content={t("deconstruction.saveReportTooltip", "保存报告至历史库")}>
                 <Button
                   size="2"
@@ -198,7 +184,7 @@ export function DeconstructionReportView({
                   onClick={onSaveReport}
                   loading={isSaving}
                   disabled={isStreaming}
-                  style={{ borderRadius: "8px", cursor: "pointer" }}
+                  style={{ cursor: "pointer" }}
                 >
                   <Save size={14} />
                   {savedId
@@ -209,61 +195,51 @@ export function DeconstructionReportView({
 
               {/* 复制 */}
               <Tooltip content={t("common.copy", "复制全文")}>
-                <Button
+                <IconButton
                   size="2"
                   variant="ghost"
                   color="gray"
                   onClick={handleCopy}
-                  style={{ borderRadius: "8px", cursor: "pointer" }}
+                  aria-label={t("common.copy", "复制全文")}
                 >
                   <Copy size={14} />
-                </Button>
+                </IconButton>
               </Tooltip>
 
               {/* 下载导出 */}
               <Tooltip content={t("deconstruction.downloadMarkdown", "导出 Markdown 文件")}>
-                <Button
+                <IconButton
                   size="2"
                   variant="ghost"
                   color="gray"
                   onClick={() => handleDownload("md")}
-                  style={{ borderRadius: "8px", cursor: "pointer" }}
+                  aria-label={t("deconstruction.downloadMarkdown", "导出 Markdown 文件")}
                 >
                   <Download size={14} />
-                </Button>
+                </IconButton>
               </Tooltip>
             </>
           )}
 
-          {/* 打开历史记录 */}
-          <Button
-            size="2"
-            variant="soft"
-            color="gray"
-            onClick={onOpenHistory}
-            style={{ borderRadius: "8px", cursor: "pointer" }}
-          >
-            <History size={14} />
-            {t("deconstruction.historyBtn", "拆书历史")}
-          </Button>
+          {onOpenHistory && (
+            <Tooltip content={t("deconstruction.historyBtn", "拆书历史")}>
+              <IconButton
+                size="2"
+                variant="soft"
+                color="gray"
+                onClick={onOpenHistory}
+                aria-label={t("deconstruction.historyBtn", "拆书历史")}
+              >
+                <History size={14} />
+              </IconButton>
+            </Tooltip>
+          )}
         </Flex>
-      </Flex>
+      </Box>
 
       {/* 22 维快速章节锚点导航栏 */}
       {reportMarkdown && (
-        <Flex
-          gap="2"
-          px="3"
-          py="2"
-          align="center"
-          style={{
-            overflowX: "auto",
-            borderBottom: "1px solid var(--gray-a3)",
-            background: "var(--gray-a1)",
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-        >
+        <Box className="deconstruction-toc-bar">
           <Text size="1" color="gray" weight="medium" style={{ flexShrink: 0 }}>
             {t("deconstruction.tocLabel", "章节直达：")}
           </Text>
@@ -275,8 +251,8 @@ export function DeconstructionReportView({
               color="gray"
               style={{
                 fontSize: "11px",
-                height: "24px",
-                padding: "0 10px",
+                height: "22px",
+                padding: "0 9px",
                 borderRadius: "999px",
                 cursor: "pointer",
               }}
@@ -285,14 +261,14 @@ export function DeconstructionReportView({
               {sec.replace(/[【】]/g, "")}
             </Button>
           ))}
-        </Flex>
+        </Box>
       )}
 
-      {/* 主展示区 */}
+      {/* 主展示与阅读区 */}
       <Box style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {reportMarkdown ? (
           <ScrollArea style={{ height: "100%" }}>
-            <Box p="6" ref={contentContainerRef} className="deconstruction-markdown-wrapper">
+            <Box ref={contentContainerRef} className="deconstruction-markdown-wrapper">
               <StreamingMarkdown
                 content={reportMarkdown}
                 isStreaming={isStreaming}
@@ -300,34 +276,29 @@ export function DeconstructionReportView({
             </Box>
           </ScrollArea>
         ) : (
-          <Flex
-            direction="column"
-            align="center"
-            justify="center"
-            style={{ height: "100%" }}
-            p="6"
-            gap="3"
-          >
+          <Box className="deconstruction-empty-state">
             <Box
               p="4"
+              mb="3"
               style={{
-                borderRadius: "50%",
+                borderRadius: "var(--radius-full)",
                 background: "var(--accent-a3)",
                 color: "var(--accent-9)",
+                display: "inline-flex",
               }}
             >
-              <FileSearch size={40} />
+              <ScanText size={38} />
             </Box>
-            <Heading size="4" weight="bold">
+            <Heading size="4" weight="bold" mb="2">
               {t("deconstruction.emptyTitle", "深度透视爆款小说结构，一键构建仿写脚手架")}
             </Heading>
-            <Text size="2" color="gray" align="center" style={{ maxWidth: "560px", lineHeight: 1.6 }}>
+            <Text size="2" color="gray" align="center" style={{ maxWidth: "540px", lineHeight: 1.6 }}>
               {t(
                 "deconstruction.emptyDesc",
                 "在左侧输入您想要拆解借鉴的参考小说（支持全文、样章或 TXT 文件），AI 分析师将自动提取梗概、男女主人设、世界观规则、起承转合、情绪变化曲线、爽点来源与分卷章节大纲。\n\n分析完成后，可一键将提取的架构直接生成为您的全新小说项目，提笔即开写！",
               )}
             </Text>
-          </Flex>
+          </Box>
         )}
       </Box>
 
@@ -372,6 +343,6 @@ export function DeconstructionReportView({
           </Flex>
         </Dialog.Content>
       </Dialog.Root>
-    </Flex>
+    </Box>
   );
 }
