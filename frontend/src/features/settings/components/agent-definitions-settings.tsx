@@ -17,7 +17,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   Copy,
-  ExternalLink,
   Info,
   MoreHorizontal,
   Plus,
@@ -28,7 +27,6 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
 
 import { LabeledSelect, ModelIdSelect, type ModelIdSelectOption } from "@/components";
 import { ContextMenu, type ContextMenuItem, toast, ConfirmDialog, Spinner } from "@/components";
@@ -144,13 +142,12 @@ function AgentForm({
   hasLlmModels,
   toolCategoryOptions,
   skills,
-  onCloseSettings,
+  onCloseSettings: _onCloseSettings,
   onKindPreviewChange,
   onUpdated,
   isAgentSettingsLocked,
 }: AgentFormProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const fieldLabelStyle = useMemo(() => ({ fontSize: "var(--font-size-base)" }), []);
 
   const [formDisplayName, setFormDisplayName] = useState(def.display_name);
@@ -256,14 +253,6 @@ function AgentForm({
     },
     onError: () => toast.error(t("settings.agentsDeleteFailed")),
   });
-
-  const handleGoToPromptChain = useCallback(() => {
-    onCloseSettings?.();
-    const params = new URLSearchParams({
-      prompt: `${def.source === "builtin" ? "builtin-agent" : "custom-agent"}--${def.key}`,
-    });
-    navigate(`/prompt-chains?${params.toString()}`);
-  }, [def.key, def.source, navigate, onCloseSettings]);
 
   const handleToggleDelegatable = useCallback((key: string) => {
     setFormDelegatableAgents((prev) =>
@@ -587,55 +576,6 @@ function AgentForm({
           )}
         </Flex>
       )}
-
-      <Flex
-        direction="column"
-        gap="1"
-      >
-        <Text
-          size="1"
-          weight="medium"
-          style={fieldLabelStyle}
-        >
-          {t("settings.agentsPromptChain")}
-        </Text>
-        <Flex
-          align="center"
-          gap="1"
-          wrap="wrap"
-        >
-          <Text
-            size="2"
-            color="gray"
-          >
-            {t("settings.agentsPromptChainLocationPrefix", { agent: def.display_name })}
-          </Text>
-          <button
-            type="button"
-            onClick={handleGoToPromptChain}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: 0,
-              border: "none",
-              background: "transparent",
-              color: "var(--accent-11)",
-              textDecoration: "underline",
-              cursor: "pointer",
-              font: "inherit",
-            }}
-          >
-            <Text
-              size="2"
-              style={{ color: "inherit" }}
-            >
-              {t("settings.agentsPromptChainAction")}
-            </Text>
-            <ExternalLink size={14} />
-          </button>
-        </Flex>
-      </Flex>
 
       <Flex
         direction="column"

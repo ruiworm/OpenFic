@@ -2,7 +2,7 @@ import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
-import { BrowserRouter, Routes, Route } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 
 import App from "./App.tsx";
 import { AppCrashFallback, GlobalLoading, toast } from "./components";
@@ -11,7 +11,6 @@ import { AppLayout } from "./features/app-shell";
 import { AuthPage } from "./features/auth";
 import { CharactersPage } from "./features/characters";
 import { DeconstructionPage } from "./features/deconstruction";
-import { PromptChainsPage } from "./features/prompt-chains";
 import { fetchSettings, updateSettings } from "./features/settings/lib/settings-api";
 import type { Settings } from "./features/settings/lib/settings.types";
 import { WorldInfoPage } from "./features/world-info";
@@ -233,7 +232,7 @@ function AppContent({
           />
           <Route
             path="/prompt-chains"
-            element={<PromptChainsPage />}
+            element={<Navigate to="/" replace />}
           />
           <Route
             path="/dashboard"

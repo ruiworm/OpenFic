@@ -1,10 +1,8 @@
 import { Box, Button, Flex, Switch, Text } from "@radix-ui/themes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
 
 import {
   ConfirmDialog,
@@ -39,13 +37,6 @@ interface SummaryNumberFieldProps {
 interface SummarySettingLabelProps {
   label: string;
   description: string;
-}
-
-interface SummaryPromptLinkProps {
-  label: string;
-  locationText: string;
-  actionText: string;
-  onClick: () => void;
 }
 
 interface SummaryFormValues {
@@ -109,58 +100,6 @@ function SummaryNumberField({ label, hint, value, min = 1, onChange }: SummaryNu
   );
 }
 
-function SummaryPromptLink({ label, locationText, actionText, onClick }: SummaryPromptLinkProps) {
-  return (
-    <Flex
-      direction="column"
-      gap="1"
-    >
-      <Text
-        size="2"
-        weight="medium"
-      >
-        {label}
-      </Text>
-      <Flex
-        align="center"
-        gap="1"
-        wrap="wrap"
-      >
-        <Text
-          size="1"
-          color="gray"
-        >
-          {locationText}
-        </Text>
-        <button
-          type="button"
-          onClick={onClick}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            padding: 0,
-            border: "none",
-            background: "transparent",
-            color: "var(--accent-11)",
-            textDecoration: "underline",
-            cursor: "pointer",
-            font: "inherit",
-          }}
-        >
-          <Text
-            size="1"
-            style={{ color: "inherit" }}
-          >
-            {actionText}
-          </Text>
-          <ExternalLink size={14} />
-        </button>
-      </Flex>
-    </Flex>
-  );
-}
-
 function isSummaryRangeInvalidationError(error: unknown): boolean {
   if (!axios.isAxiosError(error) || error.response?.status !== 409) return false;
   const detail = error.response.data?.detail;
@@ -172,9 +111,11 @@ function isSummaryRangeInvalidationError(error: unknown): boolean {
   );
 }
 
-export function SummarySettings({ onCloseSettings, isAgentSettingsLocked }: SummarySettingsProps) {
+export function SummarySettings({
+  onCloseSettings: _onCloseSettings,
+  isAgentSettingsLocked,
+}: SummarySettingsProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: settings, isLoading: isSettingsLoading } = useQuery({
     queryKey: ["settings"],
@@ -318,15 +259,6 @@ export function SummarySettings({ onCloseSettings, isAgentSettingsLocked }: Summ
     });
   }, [pendingInvalidationPayload, updateMutation]);
 
-  const handleGoToPromptChain = useCallback(
-    (promptId: string) => {
-      onCloseSettings();
-      const params = new URLSearchParams({ prompt: promptId });
-      navigate(`/prompt-chains?${params.toString()}`);
-    },
-    [navigate, onCloseSettings],
-  );
-
   if (isSettingsLoading || isModelsLoading || !settings) {
     return (
       <Flex
@@ -436,28 +368,6 @@ export function SummarySettings({ onCloseSettings, isAgentSettingsLocked }: Summ
             hint={t("settings.summaryLongTermTargetLengthHint")}
             value={longTermTargetLength}
             onChange={setLongTermTargetLength}
-          />
-        </Flex>
-
-        <Flex
-          direction="column"
-          gap="4"
-        >
-          <SummaryPromptLink
-            label={t("settings.summaryChapterPrompt")}
-            locationText={t("settings.summaryPromptChainLocationPrefix", {
-              prompt: t("settings.summaryChapterPromptName"),
-            })}
-            actionText={t("settings.summaryPromptChainAction")}
-            onClick={() => handleGoToPromptChain("memory-chapter-summary")}
-          />
-          <SummaryPromptLink
-            label={t("settings.summaryLongTermPrompt")}
-            locationText={t("settings.summaryPromptChainLocationPrefix", {
-              prompt: t("settings.summaryLongTermPromptName"),
-            })}
-            actionText={t("settings.summaryPromptChainAction")}
-            onClick={() => handleGoToPromptChain("memory-range-summary")}
           />
         </Flex>
 
