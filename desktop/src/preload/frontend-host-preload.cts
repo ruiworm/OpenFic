@@ -12,7 +12,6 @@ function getMenuShortcut(event: KeyboardEvent): string | null {
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
     if (event.code === "KeyW") return "menu-window";
     if (event.code === "KeyI") return "menu-instance";
-    if (event.code === "KeyH") return "menu-help";
   }
   if (event.key === "F11" && !event.ctrlKey && !event.altKey && !event.metaKey) return "toggle-full-screen";
   if (event.key === "F12" && !event.ctrlKey && !event.altKey && !event.metaKey) return "toggle-dev-tools";

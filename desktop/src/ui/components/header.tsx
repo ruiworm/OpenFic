@@ -31,12 +31,11 @@ type PingState =
   | { status: "ok"; latencyMs: number }
   | { status: "failed"; message: string };
 
-type MenuName = "instance" | "window" | "help";
+type MenuName = "instance" | "window";
 
 type MenuShortcut =
   | "menu-window"
   | "menu-instance"
-  | "menu-help"
   | "minimize-window"
   | "toggle-maximize"
   | "toggle-full-screen"
@@ -50,7 +49,6 @@ function getMenuShortcut(event: KeyboardEvent): MenuShortcut | null {
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
     if (event.code === "KeyW") return "menu-window";
     if (event.code === "KeyI") return "menu-instance";
-    if (event.code === "KeyH") return "menu-help";
   }
   if (event.key === "F11" && !event.ctrlKey && !event.altKey && !event.metaKey) return "toggle-full-screen";
   if (event.key === "F12" && !event.ctrlKey && !event.altKey && !event.metaKey) return "toggle-dev-tools";
@@ -71,7 +69,6 @@ function isMenuShortcut(value: unknown): value is MenuShortcut {
   return typeof value === "string" && [
     "menu-window",
     "menu-instance",
-    "menu-help",
     "minimize-window",
     "toggle-maximize",
     "toggle-full-screen",
@@ -290,11 +287,6 @@ export function DesktopHeader({
     await window.openficDesktop.saveZoomFactor(nextZoomFactor);
   };
 
-  const handleHelpAction = (action: () => Promise<void>) => {
-    setOpenMenu(null);
-    void action();
-  };
-
   const toggleMenu = (menu: MenuName) => {
     setOpenMenu((current) => (current === menu ? null : menu));
   };
@@ -306,10 +298,6 @@ export function DesktopHeader({
     }
     if (shortcut === "menu-instance") {
       setOpenMenu("instance");
-      return;
-    }
-    if (shortcut === "menu-help") {
-      setOpenMenu("help");
       return;
     }
     if (shortcut === "minimize-window") {
@@ -342,9 +330,7 @@ export function DesktopHeader({
     if (shortcut === "close-window") {
       setOpenMenu(null);
       void window.openficDesktop.closeWindow();
-      return;
     }
-    handleHelpAction(window.openficDesktop.toggleDevTools);
   });
 
   useEffect(() => {
@@ -501,43 +487,6 @@ export function DesktopHeader({
                   onClick={handleOpenDataManagement}
                 >
                   {t("desktop.header.dataManagement")}
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <div className="desktop-menu">
-            <button
-              className="desktop-menu-trigger"
-              type="button"
-              aria-expanded={openMenu === "help"}
-              aria-haspopup="menu"
-              onClick={() => toggleMenu("help")}
-            >
-              {t("desktop.header.helpMenu")}
-            </button>
-            {visibleMenu === "help" ? (
-              <div
-                className="desktop-menu-panel"
-                data-state={openMenu === "help" ? "open" : "closed"}
-                role="menu"
-                aria-label={t("desktop.header.helpMenu")}
-              >
-                <button className="desktop-menu-item" type="button" role="menuitem" onClick={() => handleHelpAction(window.openficDesktop.openProjectHome)}>
-                  {t("desktop.header.projectHome")}
-                </button>
-                <button className="desktop-menu-item" type="button" role="menuitem" onClick={() => handleHelpAction(window.openficDesktop.reportBug)}>
-                  {t("desktop.header.reportBug")}
-                </button>
-                <button className="desktop-menu-item" type="button" role="menuitem" onClick={() => handleHelpAction(window.openficDesktop.suggestFeature)}>
-                  {t("desktop.header.suggestFeature")}
-                </button>
-                <span className="desktop-menu-separator" role="separator" />
-                <button className="desktop-menu-item" type="button" role="menuitem" onClick={() => void handleExportLogs()}>
-                  {t("desktop.header.exportDebugLogs")}
-                </button>
-                <button className="desktop-menu-item" type="button" role="menuitem" onClick={() => handleHelpAction(window.openficDesktop.toggleDevTools)}>
-                  <span>{t("desktop.header.toggleDevTools")}</span>
-                  <span className="desktop-menu-item-shortcut">F12</span>
                 </button>
               </div>
             ) : null}

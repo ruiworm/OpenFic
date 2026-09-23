@@ -67,7 +67,6 @@ interface WebviewRenderProcessGoneEvent extends Event {
 const MENU_SHORTCUTS = new Set([
   "menu-window",
   "menu-instance",
-  "menu-help",
   "minimize-window",
   "toggle-maximize",
   "toggle-full-screen",
