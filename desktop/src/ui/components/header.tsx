@@ -287,6 +287,11 @@ export function DesktopHeader({
     await window.openficDesktop.saveZoomFactor(nextZoomFactor);
   };
 
+  const handleHelpAction = (action: () => Promise<void>) => {
+    setOpenMenu(null);
+    void action();
+  };
+
   const toggleMenu = (menu: MenuName) => {
     setOpenMenu((current) => (current === menu ? null : menu));
   };
@@ -330,7 +335,9 @@ export function DesktopHeader({
     if (shortcut === "close-window") {
       setOpenMenu(null);
       void window.openficDesktop.closeWindow();
+      return;
     }
+    handleHelpAction(window.openficDesktop.toggleDevTools);
   });
 
   useEffect(() => {
