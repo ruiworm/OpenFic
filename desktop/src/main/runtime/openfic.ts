@@ -29,7 +29,12 @@ const ALIYUN_PYPI_INDEX_URL = "https://mirrors.aliyun.com/pypi/simple/";
 const USTC_PYPI_INDEX_URL = "https://pypi.mirrors.ustc.edu.cn/simple/";
 const PYPI_INDEX_PROBE_TIMEOUT_MS = 5_000;
 const BACKEND_READY_TIMEOUT_MS = 60 * 60_000;
-const PYPI_INDEX_PROBE_PACKAGE = "openfic";
+// 连通性判据用 uv：任何 PyPI 镜像都必然镜像它，与本项目是否发布到 PyPI 无关。
+// 曾用 openfic 判断 → NovelForge 后端并不发布到 PyPI，国内镜像因此全部被判「不可用」，
+// 依赖只能走 pypi.org 直连，在国内网络下慢到几乎不可用。
+const PYPI_INDEX_PROBE_PACKAGE = "uv";
+// 该索引是否同时托管本项目版本包，仅用于排序优先，不参与可用性判定。
+const PYPI_INDEX_BACKEND_PACKAGE = "openfic";
 const UV_SYSTEM_CERTS_HINT = "Consider enabling use of system TLS certificates";
 const BUNDLED_WHEEL_DIRECTORY = "backend-dist";
 
@@ -94,6 +99,7 @@ const UTF8_PYTHON_ENVIRONMENT = {
 interface PypiIndexProbe {
   indexUrl: string;
   elapsedMs: number;
+  hostsBackendPackage: boolean;
 }
 
 function getVenvDir(runtimeDir: string): string {
@@ -173,19 +179,38 @@ async function probePypiIndex(indexUrl: string, expectedVersion: string): Promis
       appendLog("runtime", `Python 包索引响应异常：${indexUrl}，状态码 ${response.status}`);
       return null;
     }
-    const packageIndex = await response.text();
+    await response.text();
     const elapsedMs = performance.now() - startedAt;
-    if (!packageIndex.includes(`openfic-${expectedVersion}`)) {
-      appendLog("runtime", `Python 包索引未找到 NovelForge ${expectedVersion}：${indexUrl}`);
-      return null;
-    }
-    appendLog("runtime", `Python 包索引可用：${indexUrl}，耗时 ${Math.round(elapsedMs)}ms`);
-    return { indexUrl, elapsedMs };
+    const hostsBackendPackage = await indexHostsBackendPackage(indexUrl, expectedVersion, controller.signal);
+    appendLog(
+      "runtime",
+      `Python 包索引可用：${indexUrl}，耗时 ${Math.round(elapsedMs)}ms` +
+        (hostsBackendPackage ? "，且托管 NovelForge 后端" : "（未托管 NovelForge 后端，仅用于下载依赖）"),
+    );
+    return { indexUrl, elapsedMs, hostsBackendPackage };
   } catch (error) {
     appendLog("runtime", `Python 包索引探测失败：${indexUrl}：${error instanceof Error ? error.message : String(error)}`);
     return null;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/** 索引是否托管本项目后端包；探测失败一律视为「没有」，不影响该索引提供服务。 */
+async function indexHostsBackendPackage(
+  indexUrl: string,
+  expectedVersion: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  try {
+    const response = await net.fetch(`${indexUrl}${PYPI_INDEX_BACKEND_PACKAGE}/`, {
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) return false;
+    return (await response.text()).includes(`${PYPI_INDEX_BACKEND_PACKAGE}-${expectedVersion}`);
+  } catch {
+    return false;
   }
 }
 
@@ -195,8 +220,10 @@ async function buildPypiEnvironment(indexUrl: string): Promise<NodeJS.ProcessEnv
     ...proxyEnvironment,
     PIP_INDEX_URL: indexUrl,
     UV_INDEX_URL: indexUrl,
+    UV_DEFAULT_INDEX: indexUrl,
     pip_index_url: indexUrl,
     uv_index_url: indexUrl,
+    uv_default_index: indexUrl,
   };
 }
 
@@ -207,12 +234,40 @@ async function getPypiEnvironmentsBySpeed(expectedVersion: string): Promise<Node
   );
   const orderedUrls = probes
     .filter((probe): probe is PypiIndexProbe => probe !== null)
-    .sort((a, b) => a.elapsedMs - b.elapsedMs)
+    .sort(comparePypiProbes)
     .map((probe) => probe.indexUrl);
   if (orderedUrls.length === 0) orderedUrls.push(DEFAULT_PYPI_INDEX_URL);
 
   appendLog("runtime", `Python 包索引回退顺序：${orderedUrls.join(", ")}`);
   return Promise.all(orderedUrls.map((indexUrl) => buildPypiEnvironment(indexUrl)));
+}
+
+/**
+ * 国内镜像的固定优先级。
+ *
+ * 不能按「索引页响应延迟」排序：本机实测阿里云索引页响应最快，但下载同一个 wheel
+ * 只有 0.45MB/s，清华 / 中科大分别是 7.8 / 6.5 MB/s（三轮一致）。索引页延迟与真实
+ * 吞吐完全不成正比，而一次依赖安装有数百 MB，选错索引的代价是「几分钟」变「半小时」。
+ * 索引页探测只用来剔除不可达的镜像，排序则用实测吞吐确定的固定优先级。
+ */
+const PREFERRED_PYPI_INDEX_ORDER = [
+  TSINGHUA_PYPI_INDEX_URL,
+  USTC_PYPI_INDEX_URL,
+  ALIYUN_PYPI_INDEX_URL,
+];
+
+function comparePypiProbes(a: PypiIndexProbe, b: PypiIndexProbe): number {
+  // 托管后端本体的索引优先（仅有必要在没有内置轮子时从索引取后端本体）。
+  if (a.hostsBackendPackage !== b.hostsBackendPackage) return a.hostsBackendPackage ? -1 : 1;
+  const rankA = PREFERRED_PYPI_INDEX_ORDER.indexOf(a.indexUrl);
+  const rankB = PREFERRED_PYPI_INDEX_ORDER.indexOf(b.indexUrl);
+  if (rankA !== rankB) {
+    if (rankA === -1) return 1;
+    if (rankB === -1) return -1;
+    return rankA - rankB;
+  }
+  // 同为国内镜像或同属「其余索引」时，再按实测延迟排序。
+  return a.elapsedMs - b.elapsedMs;
 }
 
 function run(
@@ -243,7 +298,9 @@ function run(
       appendLog("runtime", `命令启动失败：${error.message}`);
       reject(error);
     });
-    child.on("exit", (code) => {
+    // 用 close 而非 exit：等 stdio 全部排空后再判定结果，
+    // 否则失败信息里的 outputLines 可能缺失关键报错行。
+    child.on("close", (code) => {
       if (code === 0) {
         appendLog("runtime", "命令执行完成");
         resolve();
@@ -278,7 +335,9 @@ function readOutput(command: string, args: string[], cwd: string): Promise<strin
       appendLog("runtime", `检查命令启动失败：${error.message}`);
       resolve(null);
     });
-    child.on("exit", (code) => {
+    // 用 close 而非 exit：Windows 上 exit 触发时 stdout 可能尚未排空，
+    // 读到空输出会被误判成「虚拟环境不可用 / 后端未安装」，进而触发整轮重装。
+    child.on("close", (code) => {
       if (code === 0) {
         appendLog("runtime", "检查命令执行完成");
         resolve(output.trim() || null);
@@ -305,7 +364,7 @@ function succeeds(command: string, args: string[], cwd: string): Promise<boolean
       appendLog("runtime", `检查命令启动失败：${error.message}`);
       resolve(false);
     });
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       appendLog("runtime", code === 0 ? "检查命令执行完成" : `检查命令执行失败：退出码 ${code}`);
       resolve(code === 0);
     });

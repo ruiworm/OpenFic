@@ -183,7 +183,8 @@ async function extractWithSystemTar(archivePath: string, outputDir: string, onLo
       onLog?.(`解压命令启动失败：${error.message}`);
       reject(error);
     });
-    child.once("exit", (code) => {
+    // 等 close：确保 tar 的输出已全部排空后再判定结果，避免失败日志缺行。
+    child.once("close", (code) => {
       if (code === 0) {
         onLog?.("解压命令执行完成");
         resolve();

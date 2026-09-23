@@ -78,7 +78,9 @@ function readPythonVersion(pythonPath: string): Promise<string | null> {
       appendLog("runtime", `检查 Python 版本失败：${error.message}`);
       resolve(null);
     });
-    child.on("exit", (code) => {
+    // 必须等 close 而不是 exit：Windows 上 exit 触发时 stdout 仍可能未排空，
+    // 此时读取 output 会得到空串，被误判成「版本不匹配」并删掉可用的运行时。
+    child.on("close", (code) => {
       appendLog("runtime", code === 0 ? "检查 Python 版本完成" : `检查 Python 版本失败：退出码 ${code}`);
       resolve(code === 0 ? output.trim() || null : null);
     });
@@ -99,6 +101,30 @@ export async function inspectPortablePython(runtimeDir: string): Promise<Runtime
   return { complete: true, message: "便携式 Python 已就绪" };
 }
 
+const VERSION_PROBE_ATTEMPTS = 2;
+const VERSION_PROBE_RETRY_DELAY_MS = 400;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 读取便携式 Python 版本，读不到时重试一次。
+ * 单次探测偶发返回空（进程刚被创建、杀软首次扫描拦截等）不代表运行时真的坏了，
+ * 必须重试后才允许判定「不可用」，否则会误删可用的运行时并触发整轮重装。
+ */
+async function probePythonVersion(pythonPath: string): Promise<string | null> {
+  for (let attempt = 1; attempt <= VERSION_PROBE_ATTEMPTS; attempt += 1) {
+    const version = await readPythonVersion(pythonPath);
+    if (version) return version;
+    if (attempt < VERSION_PROBE_ATTEMPTS) {
+      appendLog("runtime", `未读到 Python 版本，${VERSION_PROBE_RETRY_DELAY_MS}ms 后重试`);
+      await delay(VERSION_PROBE_RETRY_DELAY_MS);
+    }
+  }
+  return null;
+}
+
 export async function ensurePortablePython(
   runtimeDir: string,
   onPhase: (phase: "download" | "extract", message: string) => void,
@@ -108,40 +134,62 @@ export async function ensurePortablePython(
   const pythonPath = getPortablePythonPath(rootDir);
   const asset = resolvePythonAsset();
   appendLog("runtime", `开始检查便携式 Python：${rootDir}`);
-  if (await pathExists(pythonPath)) {
-    const installedVersion = await readPythonVersion(pythonPath);
+  const hadExistingRuntime = await pathExists(pythonPath);
+  if (hadExistingRuntime) {
+    const installedVersion = await probePythonVersion(pythonPath);
     if (installedVersion && matchesPortablePythonVersion(installedVersion, asset.version)) {
       appendLog("runtime", `便携式 Python 已就绪：${installedVersion}`);
       return { pythonPath, rootDir, wasReplaced: false };
     }
-    appendLog("runtime", "便携式 Python 版本不匹配或不可用，删除现有文件");
-    await rm(rootDir, { recursive: true, force: true });
+    appendLog(
+      "runtime",
+      installedVersion
+        ? `便携式 Python 版本不匹配：${installedVersion} != ${asset.version}，准备重新安装`
+        : "便携式 Python 不可用，准备重新安装",
+    );
   }
 
-  // A partial extraction may not contain the Python executable at all.
-  await rm(rootDir, { recursive: true, force: true });
-
+  // 注意：这里不再提前删除 rootDir。旧实现「先删后下」，一旦下载/解压失败，
+  // 原本可用的运行时已经被清空，整个应用再也起不来（必须联网重试才能恢复）。
+  // 解压本身走 staging 目录 + 逐项复制 + 回滚，无需先清空目标目录。
   const archivePath = path.join(runtimeDir, `python-${asset.version}-${asset.target}.tar.gz`);
   await mkdir(runtimeDir, { recursive: true });
 
-  onPhase("download", `下载 Python ${asset.version}`);
-  appendLog("runtime", `开始下载 Python ${asset.version}`);
-  await downloadFile(
-    asset.urls,
-    archivePath,
-    (received, total) => onDownload({ received, total }),
-    (message) => appendLog("runtime", message),
-  );
+  try {
+    onPhase("download", `下载 Python ${asset.version}`);
+    appendLog("runtime", `开始下载 Python ${asset.version}`);
+    await downloadFile(
+      asset.urls,
+      archivePath,
+      (received, total) => onDownload({ received, total }),
+      (message) => appendLog("runtime", message),
+    );
 
-  onPhase("extract", "解压 Python");
-  appendLog("runtime", "开始解压 Python");
-  await extractTarGz(archivePath, rootDir, (message) => appendLog("runtime", message), undefined, false);
+    onPhase("extract", "解压 Python");
+    appendLog("runtime", "开始解压 Python");
+    await extractTarGz(archivePath, rootDir, (message) => appendLog("runtime", message), undefined, false);
 
-  if (!(await pathExists(pythonPath))) {
-    throw new Error(`portable Python not found after extraction: ${pythonPath}`);
+    if (!(await pathExists(pythonPath))) {
+      throw new Error(`portable Python not found after extraction: ${pythonPath}`);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // 更新失败不必然是致命错误：若原有的便携式 Python 仍然能跑，就沿用它。
+    // 让用户带着一个可用（哪怕是旧版本）的运行时启动，远好过直接卡在启动页。
+    if (hadExistingRuntime && (await pathExists(pythonPath))) {
+      const fallbackVersion = await probePythonVersion(pythonPath);
+      if (fallbackVersion) {
+        appendLog(
+          "runtime",
+          `Python 更新失败，沿用现有运行时 ${fallbackVersion}，继续启动：${detail}`,
+        );
+        return { pythonPath, rootDir, wasReplaced: false };
+      }
+    }
+    throw error;
+  } finally {
+    await rm(archivePath, { force: true });
   }
-
-  await rm(archivePath, { force: true });
 
   appendLog("runtime", "便携式 Python 安装完成");
   return { pythonPath, rootDir, wasReplaced: true };
