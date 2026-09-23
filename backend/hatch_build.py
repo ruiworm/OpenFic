@@ -20,6 +20,19 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for test runtime with
 def build_frontend_assets(backend_dir: Path, frontend_dir: Path, version: str) -> None:
     target_dir = backend_dir / "frontend"
 
+    # 已烘焙好的前端产物优先复用：CI 里前端由独立 job 构建并以 artifact 形式送达，
+    # 此时不需要（也不应该）重新拉取依赖构建。
+    reuse_hint = os.environ.get("OPENFIC_REUSE_FRONTEND", "").strip().lower()
+    wants_reuse = reuse_hint in {"1", "true", "yes"}
+
+    if wants_reuse:
+        if not (target_dir / "index.html").exists():
+            raise RuntimeError(
+                f"OPENFIC_REUSE_FRONTEND 已开启，但未找到可复用的前端产物：{target_dir / 'index.html'}",
+            )
+        stderr.write(f">>> Reusing packaged frontend assets from {target_dir}\n")
+        return
+
     if not frontend_dir.exists():
         if (target_dir / "index.html").exists():
             stderr.write(f">>> Reusing packaged frontend assets from {target_dir}\n")
@@ -28,7 +41,10 @@ def build_frontend_assets(backend_dir: Path, frontend_dir: Path, version: str) -
 
     pnpm = shutil.which("pnpm")
     if pnpm is None:
-        raise RuntimeError("pnpm is required for building the OpenFic frontend but it was not found")
+        raise RuntimeError(
+            "pnpm is required for building the OpenFic frontend but it was not found. "
+            f"请先构建前端产物到 {target_dir} 并设置 OPENFIC_REUSE_FRONTEND=1 复用。",
+        )
 
     stderr.write(">>> Building OpenFic frontend\n")
     stderr.write("### pnpm install --frozen-lockfile\n")

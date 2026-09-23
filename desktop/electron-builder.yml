@@ -24,6 +24,10 @@ extraResources:
     to: frontend-dist
     filter:
       - "**/*"
+  - from: ../backend/dist
+    to: backend-dist
+    filter:
+      - "*.whl"
   - from: resources/app-update.yml
     to: app-update.yml
 

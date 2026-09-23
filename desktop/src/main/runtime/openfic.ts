@@ -1,6 +1,6 @@
-import { net } from "electron";
+import { app, net } from "electron";
 import { spawn } from "node:child_process";
-import { access, mkdir, rm } from "node:fs/promises";
+import { access, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { findFreePort } from "../ports.js";
 import {
@@ -31,6 +31,35 @@ const PYPI_INDEX_PROBE_TIMEOUT_MS = 5_000;
 const BACKEND_READY_TIMEOUT_MS = 60 * 60_000;
 const PYPI_INDEX_PROBE_PACKAGE = "openfic";
 const UV_SYSTEM_CERTS_HINT = "Consider enabling use of system TLS certificates";
+const BUNDLED_WHEEL_DIRECTORY = "backend-dist";
+
+function getBundledWheelDir(): string {
+  return process.resourcesPath
+    ? path.join(process.resourcesPath, BUNDLED_WHEEL_DIRECTORY)
+    : path.join(app.getAppPath(), BUNDLED_WHEEL_DIRECTORY);
+}
+
+async function findBundledWheel(expectedVersion: string): Promise<string | null> {
+  const wheelDir = getBundledWheelDir();
+  let entries: string[];
+  try {
+    entries = await readdir(wheelDir);
+  } catch {
+    return null;
+  }
+
+  const wheelName = `openfic-${expectedVersion}-`;
+  const match = entries.find((entry) => entry.startsWith(wheelName) && entry.endsWith(".whl"));
+  if (!match) {
+    appendLog("runtime", `未在安装包中找到匹配的后端轮子：${path.join(wheelDir, `${wheelName}*.whl`)}`);
+    return null;
+  }
+
+  const wheelPath = path.join(wheelDir, match);
+  appendLog("runtime", `找到随安装包分发的后端轮子：${wheelPath}`);
+  return wheelPath;
+}
+
 const UTF8_PYTHON_ENVIRONMENT = {
   PYTHONIOENCODING: "utf-8",
   PYTHONUTF8: "1",
@@ -391,15 +420,37 @@ export async function ensureOpenFicRuntime(
       installedVersion ? `NovelForge 后端需要更新：${installedVersion} -> ${expectedVersion}` : "NovelForge 后端尚未安装",
     );
     onProgress("install-openfic", installedVersion ? "更新 NovelForge 后端" : "安装 NovelForge 后端");
+    const forceReinstall = installedVersion === expectedVersion && !openFicCliIsUsable;
+    const bundledWheelPath = await findBundledWheel(expectedVersion);
+    // 内置轮子只解决 openfic 本体，其第三方依赖仍需从包索引获取，
+    // 因此离线安装同样要走索引探测与回退（含系统代理配置）。
     const packageIndexEnvironments = await getPypiEnvironments();
-    const installCommand = createOpenFicInstallCommand(
-      venvPythonPath,
-      expectedVersion,
-      installedVersion === expectedVersion && !openFicCliIsUsable,
-    );
-    await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
-      runUvInstallWithSystemCertsRetry(uvPath, installCommand.args, runtimeDir, onProgress, environment),
-    );
+    if (bundledWheelPath) {
+      // 安装包已内置对应版本的后端轮子，优先离线安装，避免依赖 openfic 在索引上的可用性。
+      const bundledArgs = ["pip", "install", "--python", venvPythonPath];
+      if (forceReinstall) bundledArgs.push("--reinstall");
+      bundledArgs.push(bundledWheelPath);
+      try {
+        await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
+          runUvInstallWithSystemCertsRetry(uvPath, bundledArgs, runtimeDir, onProgress, environment),
+        );
+        appendLog("runtime", "已使用安装包内置的后端轮子完成安装");
+      } catch (error) {
+        appendLog(
+          "runtime",
+          `使用内置后端轮子安装失败，回退到包索引：${error instanceof Error ? error.message : String(error)}`,
+        );
+        const installCommand = createOpenFicInstallCommand(venvPythonPath, expectedVersion, forceReinstall);
+        await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
+          runUvInstallWithSystemCertsRetry(uvPath, installCommand.args, runtimeDir, onProgress, environment),
+        );
+      }
+    } else {
+      const installCommand = createOpenFicInstallCommand(venvPythonPath, expectedVersion, forceReinstall);
+      await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
+        runUvInstallWithSystemCertsRetry(uvPath, installCommand.args, runtimeDir, onProgress, environment),
+      );
+    }
   }
 
   appendLog("runtime", "NovelForge 运行环境检查完成");

@@ -79,6 +79,72 @@ jobs:
           path: .pnpm-store
           key: ${{ steps.pnpm-cache.outputs.cache-primary-key }}
 
+  # ---------------------------------------------------------------- backend wheel
+  # 后端轮子随桌面安装包一起分发，桌面端启动时优先离线安装，
+  # 避免依赖 PyPI 可用性（PyPI 发布失败或延迟都不影响安装包可用）。
+  build-backend-wheel:
+    needs: [context, build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # 前端产物由 build-frontend job 构建，这里直接复用，避免在缺少 node/pnpm 的
+      # 环境里重复构建前端（hatch 构建钩子会优先使用已就位的 assets）。
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 复用已构建的前端产物
+        run: |
+          set -euo pipefail
+          test -f frontend/dist/index.html
+          mkdir -p backend/frontend
+          cp -r frontend/dist/. backend/frontend/
+          ls -l backend/frontend/index.html
+      - name: 构建后端 Python 包
+        working-directory: backend
+        env:
+          OPENFIC_REUSE_FRONTEND: '1'
+        run: uv build --wheel
+      - name: 校验轮子内已包含前端产物与迁移
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          wheels = glob.glob("backend/dist/*.whl")
+          if not wheels:
+              sys.exit("未产出后端轮子")
+          with zipfile.ZipFile(wheels[0]) as archive:
+              names = set(archive.namelist())
+
+          if "frontend/index.html" not in names:
+              sys.exit(f"轮子内缺少前端产物：{wheels[0]}")
+
+          # 迁移必须随包分发，否则买家覆盖安装后拿不到修复。
+          migrations = sorted(n for n in names if "/storage/migrations/versions/" in n)
+          if not migrations:
+              sys.exit(f"轮子内没有任何迁移文件：{wheels[0]}")
+
+          expected = ("1020_", "1021_", "1022_")
+          missing = [tag for tag in expected if not any(tag in m for m in migrations)]
+          if missing:
+              sys.exit(f"轮子内缺少关键迁移 {missing}：{wheels[0]}")
+
+          print(f"{wheels[0]} 校验通过：前端产物就位，迁移 {len(migrations)} 个，关键迁移齐全")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-wheel
+          path: backend/dist/*.whl
+
   # ---------------------------------------------------------------- pypi
   pypi:
     needs: [context, build-frontend]
@@ -228,7 +294,7 @@ jobs:
 
   # ---------------------------------------------------------------- desktop
   desktop:
-    needs: [context, build-frontend]
+    needs: [context, build-frontend, build-backend-wheel]
     strategy:
       fail-fast: false
       matrix:
@@ -261,6 +327,10 @@ jobs:
         with:
           name: frontend-dist
           path: frontend/dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-wheel
+          path: backend/dist
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -293,6 +363,17 @@ jobs:
       - name: 安装桌面端依赖
         working-directory: desktop
         run: pnpm install --frozen-lockfile
+      - name: 校验后端轮子已就位
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(backend/dist/*.whl)
+          if ((${#wheels[@]} == 0)); then
+            echo "未找到后端轮子，安装包将缺少内置后端。" >&2
+            exit 1
+          fi
+          ls -l "${wheels[@]}"
       - name: 构建桌面端
         working-directory: desktop
         run: pnpm build
