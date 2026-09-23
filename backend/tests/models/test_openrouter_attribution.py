@@ -9,8 +9,7 @@ from app.models.clients.rerank_client import RerankClient, RerankConfig
 
 
 _APP_ATTRIBUTION_HEADERS = {
-    "HTTP-Referer": "https://github.com/ruiworm/OpenFic",
-    "X-OpenRouter-Title": "OpenFic",
+    "X-OpenRouter-Title": "NovelForge",
     "X-OpenRouter-Categories": "creative-writing,writing-assistant",
 }
 
@@ -25,8 +24,8 @@ def test_create_chat_model_openrouter_adds_app_attribution() -> None:
         )
     )
 
-    assert model.app_url == "https://github.com/ruiworm/OpenFic"
-    assert model.app_title == "OpenFic"
+    assert model.app_url is None
+    assert model.app_title == "NovelForge"
     assert model.app_categories == ["creative-writing", "writing-assistant"]
 
 

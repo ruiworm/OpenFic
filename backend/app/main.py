@@ -578,9 +578,9 @@ def _bold_color(text: str, color: str) -> str:
 
 def _style_title_line(version: str, supports_ansi: bool) -> str:
     if not supports_ansi:
-        return f"OpenFic v{version} - Entering the vibe writing era"
+        return f"NovelForge v{version} - Entering the vibe writing era"
     return (
-        f"{_bold_color('OpenFic', ANSI_GREEN)}"
+        f"{_bold_color('NovelForge', ANSI_GREEN)}"
         f"{ANSI_BOLD} v{version} - Entering the vibe writing era{ANSI_RESET}"
     )
 
@@ -602,16 +602,15 @@ def _style_access_line(line: str, supports_ansi: bool) -> str:
 def _format_banner_lines(version: str, host: str, port: int, supports_ansi: bool) -> list[str]:
     return [
         "",
-        " ██████╗ ██████╗ ███████╗███╗   ██╗███████╗██╗ ██████╗",
-        "██╔═══██╗██╔══██╗██╔════╝████╗  ██║██╔════╝██║██╔════╝",
-        "██║   ██║██████╔╝█████╗  ██╔██╗ ██║█████╗  ██║██║     ",
-        "██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║██╔══╝  ██║██║     ",
-        "╚██████╔╝██║     ███████╗██║ ╚████║██║     ██║╚██████╗",
-        " ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝",
+        "█   █  ███  █   █ █████ █     █████  ███  ████   ████ █████",
+        "██  █ █   █ █   █ █     █     █     █   █ █   █ █     █    ",
+        "█ █ █ █   █ █   █ ████  █     ████  █   █ ████  █  ██ ████ ",
+        "█  ██ █   █  █ █  █     █     █     █   █ █  █  █   █ █    ",
+        "█   █  ███    █   ████  █████ █      ███  █   █  ███  ████ ",
         "",
         _style_title_line(version, supports_ansi),
         "",
-        _style_link_line("https://github.com/syrizelink/OpenFic", supports_ansi),
+        _style_link_line("NovelForge · 本地 Vibe Writing 工作台", supports_ansi),
         "",
         *[_style_access_line(line, supports_ansi) for line in _format_access_url_lines(host, port)],
         "",

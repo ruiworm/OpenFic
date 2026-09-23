@@ -251,7 +251,7 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
             model=config.model_id,
             api_key=config.api_key,
             base_url=config.base_url or None,
-            app_url=OPENROUTER_APP_URL,
+            app_url=OPENROUTER_APP_URL or None,
             app_title=OPENROUTER_APP_TITLE,
             app_categories=list(OPENROUTER_APP_CATEGORIES),
             temperature=_non_default(config.temperature, DEFAULT_TEMPERATURE),

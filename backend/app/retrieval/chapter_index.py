@@ -13,6 +13,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.builtin import BUILTIN_EMBEDDING_MODEL_ID
 from app.models.entities.model import Model
 from app.models.repos import model_repo
 from app.retrieval.service import OpenFicRetrievalService
@@ -183,6 +184,16 @@ def _parse_bool_setting(raw: str | None, *, default: bool) -> bool:
     return default
 
 
+def resolve_embedding_model_ref_id(raw_value: str | None) -> str:
+    """解析生效的嵌入模型引用。
+
+    出厂配置中 default_embedding_model 为空字符串，若直接使用会导致检索与
+    索引链路报「未配置 default_embedding_model」。这里统一回落到随应用分发的
+    内置本地模型（bge-small-zh-v1.5），保证新装用户开箱即可检索。
+    """
+    return (raw_value or "").strip() or BUILTIN_EMBEDDING_MODEL_ID
+
+
 async def get_index_settings(session: AsyncSession) -> IndexSettingsConfig:
     """读取索引相关的全部设置并校验为合法值。"""
     settings_list = await setting_repo.get_all(session)
@@ -205,7 +216,9 @@ async def get_index_settings(session: AsyncSession) -> IndexSettingsConfig:
     chunk_overlap = _parse_int_setting(
         raw.get(SETTING_KEY_INDEX_CHUNK_OVERLAP), default=DEFAULT_INDEX_CHUNK_OVERLAP
     )
-    embedding_model_ref_id = (raw.get(SETTING_KEY_DEFAULT_EMBEDDING_MODEL) or "").strip()
+    embedding_model_ref_id = resolve_embedding_model_ref_id(
+        raw.get(SETTING_KEY_DEFAULT_EMBEDDING_MODEL)
+    )
     rerank_enabled = _parse_bool_setting(
         raw.get(SETTING_KEY_INDEX_RERANK_ENABLED),
         default=DEFAULT_INDEX_RERANK_ENABLED,
@@ -1440,7 +1453,9 @@ class ChapterIndexIntegrationService:
             session,
             SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
         )
-        current_model_ref_id = setting.value.strip() if setting is not None else ""
+        current_model_ref_id = resolve_embedding_model_ref_id(
+            setting.value if setting is not None else None
+        )
         if (
             state.status == CHAPTER_INDEX_STATUS_NEEDS_REBUILD
             or current_model_ref_id != embedding_model_ref_id

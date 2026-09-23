@@ -32,6 +32,7 @@ from app.retrieval.chapter_index import (
     ChapterIndexIntegrationService,
     chapter_document_id,
     chapter_index_key,
+    resolve_embedding_model_ref_id,
 )
 from app.retrieval.index_status import commit_and_emit_index_status
 from app.retrieval.service import OpenFicRetrievalService
@@ -222,7 +223,9 @@ async def handle_retrieval_chapter_index_batch(context: JobContext) -> dict[str,
         context.session,
         SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
     )
-    current_model_ref_id = setting.value.strip() if setting is not None else ""
+    current_model_ref_id = resolve_embedding_model_ref_id(
+        setting.value if setting is not None else None
+    )
     if current_model_ref_id != metadata.embedding_model_ref_id:
         await _finalize_and_abort(
             context,

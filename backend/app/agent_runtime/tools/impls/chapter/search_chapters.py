@@ -29,6 +29,7 @@ from app.retrieval.chapter_index import (
     chapter_index_key,
     compute_chapter_source_hash,
     get_index_settings,
+    resolve_embedding_model_ref_id,
 )
 from app.retrieval.service import IndexNotReadyError, OpenFicRetrievalService
 from app.retrieval.types import ChunkSearchResult
@@ -289,9 +290,11 @@ class SearchChaptersTool(AgentTool):
                 session,
                 SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
             )
-            model_ref_id = setting.value.strip() if setting is not None else ""
+            model_ref_id = resolve_embedding_model_ref_id(
+                setting.value if setting is not None else None
+            )
             if not model_ref_id:
-                raise ToolExecutionError("未配置 default_embedding_model，无法检索章节")
+                raise ToolExecutionError("未配置嵌入模型，无法检索章节")
             model = await model_repo.get_by_id(session, model_ref_id)
             if model is None or model.task_type != "embedding":
                 raise ToolExecutionError("default_embedding_model 不存在或不是 embedding 模型")

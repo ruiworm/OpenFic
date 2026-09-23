@@ -44,19 +44,45 @@ async function findBundledWheel(expectedVersion: string): Promise<string | null>
   let entries: string[];
   try {
     entries = await readdir(wheelDir);
-  } catch {
+  } catch (error) {
+    appendLog(
+      "runtime",
+      `未找到安装包内置的后端目录：${wheelDir}（${error instanceof Error ? error.message : String(error)}）`,
+    );
     return null;
   }
 
+  const wheels = entries.filter((entry) => entry.endsWith(".whl")).sort();
+  if (wheels.length === 0) {
+    appendLog("runtime", `安装包内置的后端目录中没有任何 whl 文件：${wheelDir}`);
+    return null;
+  }
+
+  // 优先使用与当前应用版本一致的轮子。
   const wheelName = `openfic-${expectedVersion}-`;
-  const match = entries.find((entry) => entry.startsWith(wheelName) && entry.endsWith(".whl"));
-  if (!match) {
-    appendLog("runtime", `未在安装包中找到匹配的后端轮子：${path.join(wheelDir, `${wheelName}*.whl`)}`);
+  const exact = wheels.find((entry) => entry.startsWith(wheelName));
+  if (exact) {
+    const wheelPath = path.join(wheelDir, exact);
+    appendLog("runtime", `找到随安装包分发的后端轮子：${wheelPath}`);
+    return wheelPath;
+  }
+
+  // 精确版本未命中时退回任意可用的 openfic 轮子：版本号不一致只会让运行环境
+  // 被重新安装到内置版本，总好过因为找不到文件而直接去访问外部包索引。
+  const fallback = [...wheels].reverse().find((entry) => entry.startsWith("openfic-"));
+  if (!fallback) {
+    appendLog(
+      "runtime",
+      `安装包内置的后端目录中没有 openfic 轮子：${wheelDir}（现有文件：${wheels.join(", ")}）`,
+    );
     return null;
   }
 
-  const wheelPath = path.join(wheelDir, match);
-  appendLog("runtime", `找到随安装包分发的后端轮子：${wheelPath}`);
+  const wheelPath = path.join(wheelDir, fallback);
+  appendLog(
+    "runtime",
+    `未找到与 ${expectedVersion} 完全匹配的后端轮子，改用安装包内置的 ${fallback}`,
+  );
   return wheelPath;
 }
 
@@ -446,10 +472,24 @@ export async function ensureOpenFicRuntime(
         );
       }
     } else {
-      const installCommand = createOpenFicInstallCommand(venvPythonPath, expectedVersion, forceReinstall);
-      await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
-        runUvInstallWithSystemCertsRetry(uvPath, installCommand.args, runtimeDir, onProgress, environment),
+      appendLog(
+        "runtime",
+        `安装包内未找到内置后端文件（${getBundledWheelDir()}/openfic-*.whl），改为从 Python 包索引安装后端。`,
       );
+      const installCommand = createOpenFicInstallCommand(venvPythonPath, expectedVersion, forceReinstall);
+      try {
+        await runInstallWithIndexFallback(packageIndexEnvironments, (environment) =>
+          runUvInstallWithSystemCertsRetry(uvPath, installCommand.args, runtimeDir, onProgress, environment),
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `无法安装 NovelForge 后端：安装包内缺少内置的后端文件（应为 ` +
+            `${BUNDLED_WHEEL_DIRECTORY}/openfic-*.whl），且无法从 Python 包索引获取 ${expectedVersion} 版本。` +
+            `请确认安装包完整（重新下载并覆盖安装），或在可访问 Python 包索引的网络环境下重试。` +
+            `原始错误：${detail}`,
+        );
+      }
     }
   }
 

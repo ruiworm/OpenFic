@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "OpenFic"
+    app_name: str = "NovelForge"
     app_version: str = _read_package_version()
     debug: bool = False
 

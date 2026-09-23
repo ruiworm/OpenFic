@@ -17,7 +17,7 @@ from trafilatura import extract_with_metadata
 from app.agent_runtime.tools.errors import ToolExecutionError
 
 DEFAULT_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
-DEFAULT_USER_AGENT = "OpenFic-WebFetch/1.0"
+DEFAULT_USER_AGENT = "NovelForge-WebFetch/1.0"
 FALLBACK_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -26,6 +26,9 @@ MAX_RAW_HTML_BYTES = 5 * 1024 * 1024
 MAX_REDIRECTS = 5
 ALLOWED_CONTENT_TYPES = frozenset({"text/html", "application/xhtml+xml"})
 TEREDO_NETWORK = ipaddress.ip_network("2001::/32")
+# Clash / Mihomo 等代理软件 fake-ip 模式使用的地址段（RFC 2544 基准测试网段）。
+# 命中该段基本可以确定是本地代理接管了解析，而不是目标站点真的位于内网。
+PROXY_FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/15")
 INLINE_ELEMENTS = frozenset(
     {"a", "abbr", "b", "code", "em", "i", "kbd", "mark", "q", "s", "small", "span", "strong"}
 )
@@ -138,8 +141,22 @@ async def _assert_public_url(url: str) -> None:
         else await resolve_public_addresses(hostname)
     )
     if not all(_is_public_address(address) for address in addresses):
+        resolved = "、".join(str(address) for address in addresses[:4])
+        if any(
+            isinstance(address, ipaddress.IPv4Address)
+            and address in PROXY_FAKE_IP_NETWORK
+            for address in addresses
+        ):
+            raise ToolExecutionError(
+                f"目标地址被安全策略阻止：{hostname} 被本地代理解析为 {resolved}，"
+                "该地址段（198.18.0.0/15）是 Clash / Mihomo 等代理软件 fake-ip 模式使用的保留网段，"
+                "并不代表目标站点位于内网。请在「设置 → 联网搜索」中开启「绕过 SSRF 防护」，"
+                "或把代理的 DNS 模式改为 real-ip 后重试。",
+                code="permission_denied",
+            )
         raise ToolExecutionError(
-            "目标地址被安全策略阻止",
+            f"目标地址被安全策略阻止：{hostname} 解析到 {resolved}，不是公网地址。"
+            "若确实需要访问本机或内网地址，请在「设置 → 联网搜索」中开启「绕过 SSRF 防护」。",
             code="permission_denied",
         )
 

@@ -68,6 +68,7 @@ from app.memory.summary_config import (
     parse_summary_settings,
 )
 from app.memory.chapter.summary_service import invalidate_all_long_term_summaries
+from app.models.builtin import BUILTIN_EMBEDDING_MODEL_ID
 from app.retrieval.chapter_index import (
     DEFAULT_INDEX_AUTO_STRATEGY,
     DEFAULT_INDEX_CHUNK_OVERLAP,
@@ -144,7 +145,7 @@ DEFAULT_SETTINGS = {
     SETTING_KEY_SUMMARY_LONG_TERM_INTERVAL: str(DEFAULT_SUMMARY_LONG_TERM_INTERVAL),
     SETTING_KEY_SUMMARY_CHAPTER_TARGET_LENGTH: str(DEFAULT_SUMMARY_CHAPTER_TARGET_LENGTH),
     SETTING_KEY_SUMMARY_LONG_TERM_TARGET_LENGTH: str(DEFAULT_SUMMARY_LONG_TERM_TARGET_LENGTH),
-    SETTING_KEY_DEFAULT_EMBEDDING_MODEL: "",
+    SETTING_KEY_DEFAULT_EMBEDDING_MODEL: BUILTIN_EMBEDDING_MODEL_ID,
     SETTING_KEY_INDEX_MODE: DEFAULT_INDEX_MODE,
     SETTING_KEY_INDEX_ENABLED_PROJECTS: "[]",
     SETTING_KEY_INDEX_CHUNK_SIZE: str(DEFAULT_INDEX_CHUNK_SIZE),
@@ -370,10 +371,12 @@ code_font_family=settings_dict.get(
         summary_long_term_interval=summary_settings.long_term_interval,
         summary_chapter_target_length=summary_settings.chapter_target_length,
         summary_long_term_target_length=summary_settings.long_term_target_length,
+        # 空值兜底到内置本地模型，与前端的实际可用状态保持一致。
         default_embedding_model=settings_dict.get(
             SETTING_KEY_DEFAULT_EMBEDDING_MODEL,
             DEFAULT_SETTINGS[SETTING_KEY_DEFAULT_EMBEDDING_MODEL],
-        ),
+        )
+        or BUILTIN_EMBEDDING_MODEL_ID,
         index_mode=_normalize_index_mode(
             settings_dict.get(
                 SETTING_KEY_INDEX_MODE,

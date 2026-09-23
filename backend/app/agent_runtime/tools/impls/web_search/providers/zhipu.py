@@ -16,7 +16,9 @@ from app.agent_runtime.tools.impls.web_search.providers.base import (
     WebSearchResult,
 )
 
-DEFAULT_ZHIPU_SEARCH_ENGINE = "search_pro"
+# 默认使用基础版引擎：search_std 为 ¥0.01/次，search_pro 为 ¥0.03/次。
+# 章节检索类场景两者召回差异有限，默认走便宜档，用户可在设置中切换。
+DEFAULT_ZHIPU_SEARCH_ENGINE = "search_std"
 
 
 def _run_sync_search(api_key: str, query: str, config: WebSearchProviderConfig) -> Any:

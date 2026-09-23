@@ -676,7 +676,7 @@ class TestSdkProviders:
         client.web_search.web_search.assert_called_once()
         call_kwargs = client.web_search.web_search.call_args.kwargs
         assert call_kwargs["search_query"] == "q"
-        assert call_kwargs["search_engine"] == "search_pro"
+        assert call_kwargs["search_engine"] == "search_std"
         assert response.results[0].model_dump() == {
             "title": "t",
             "url": "https://u",

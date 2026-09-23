@@ -80,7 +80,7 @@ def handle_serve(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="openfic",
-        description="OpenFic 本地服务启动器",
+        description="NovelForge 本地服务启动器",
     )
 
     subparsers = parser.add_subparsers(dest="command")
