@@ -1044,11 +1044,11 @@ async def _seed_ready_index(session: AsyncSession) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_search_chapters_rerank_path_uses_limited_top_n_and_invokes_rerank(
+async def test_search_chapters_rerank_covers_full_candidate_pool(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """启用 rerank 后候选池放大、最终上限收紧到 8 并调用 rerank。"""
+    """启用 rerank 后重排覆盖整个候选池（40），最终上限收紧到 5。"""
     module, _ = await _seed_ready_index(session)
     await setting_repo.upsert(session, "index_rerank_enabled", "true")
     await setting_repo.upsert(session, "default_rerank_model", "rerank-model-1")
@@ -1080,7 +1080,7 @@ async def test_search_chapters_rerank_path_uses_limited_top_n_and_invokes_rerank
     calls = retrieval.last_builder.calls
     assert ("vector_top_k", 40) in calls
     assert ("bm25_top_k", 40) in calls
-    assert ("rerank", (rerank_client, 5)) in calls
+    assert ("rerank", (rerank_client, 40)) in calls
     assert ("limit", 5) in calls
 
 

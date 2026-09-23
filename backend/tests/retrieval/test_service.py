@@ -102,6 +102,22 @@ class FailingRerankClient:
         raise ProviderTimeoutError("内置重排模型加载或推理超时（60s）")
 
 
+class RecordingRerankClient:
+    """记录重排实际收到的候选，用于验证候选池覆盖范围。"""
+
+    def __init__(self) -> None:
+        self.documents: list[str] = []
+        self.top_n: int | None = None
+
+    async def rerank(self, query: str, documents: list[str], top_n: int | None = None):
+        self.documents = list(documents)
+        self.top_n = top_n
+        return RerankResponse(
+            results=[RerankItem(index=0, relevance_score=1.0)],
+            model="recording-reranker",
+        )
+
+
 def _make_contract(embedding_model_ref_id: str) -> RetrievalIndexContract:
     return RetrievalIndexContract(
         embedding_model_ref_id=embedding_model_ref_id,
@@ -614,6 +630,62 @@ async def test_hybrid_query_falls_back_to_rrf_when_rerank_fails(
     ]
     assert all(row.rerank_score is None for row in degraded_results)
     assert all(row.score > 0 for row in degraded_results)
+
+
+@pytest.mark.asyncio
+async def test_rerank_covers_whole_candidate_pool(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """重排应覆盖整个候选池，而不是被截断到最终返回条数。
+
+    否则重排只能重排「RRF 前 N 条」的内部顺序，无法把候选池里更相关的内容
+    捞上来，等于白开。
+    """
+    model = await _create_embedding_model(session)
+    service = OpenFicRetrievalService(base_dir=tmp_path / "lancedb")
+    contract = _make_contract(model.id)
+    embedding_client = FakeEmbeddingClient()
+
+    await service.register_index(session, "chapters", contract)
+    await service.index_documents(
+        session,
+        "chapters",
+        [
+            IndexDocument(
+                document_id=f"chapter-{index}",
+                text=text,
+                attributes={"project_id": "p1", "chapter_order": index},
+            )
+            for index, text in enumerate(
+                [
+                    "The hero meets a dragon and joins the guild.",
+                    "The guild turns on the hero after the feast.",
+                    "A hero walks alone through the silent valley.",
+                    "The hero finds an ancient map in the ruins.",
+                    "Another hero arrives to challenge the guild.",
+                    "The hero sails across the endless sea.",
+                ],
+                start=1,
+            )
+        ],
+        embedding_client,
+    )
+
+    rerank_client = RecordingRerankClient()
+    query = await service.query(session, "chapters", "hero guild", embedding_client)
+    await (
+        query
+        .hybrid()
+        .vector_top_k(6)
+        .bm25_top_k(6)
+        .rrf(k=10)
+        .rerank(rerank_client, top_n=6)
+        .limit(5)
+        .run()
+    )
+
+    assert len(rerank_client.documents) == 6
+    assert rerank_client.top_n == 6
 
 
 @pytest.mark.asyncio

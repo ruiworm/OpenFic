@@ -345,8 +345,12 @@ class SearchChaptersTool(AgentTool):
                     .filter_eq("project_id", self.project_id)
                 )
                 if rerank_client is not None:
+                    # 重排必须覆盖整个候选池：候选池来自 vector / bm25 各 40 条，
+                    # 最终收敛到 SEARCH_CHAPTERS_CHUNK_LIMIT 条。若这里传
+                    # SEARCH_CHAPTERS_CHUNK_LIMIT，重排就退化成「把 RRF 前 5 条
+                    # 换个顺序」，无法把候选池里更相关的内容捞上来。
                     query_builder = query_builder.rerank(
-                        rerank_client, top_n=SEARCH_CHAPTERS_CHUNK_LIMIT
+                        rerank_client, top_n=SEARCH_CHAPTERS_CANDIDATE_TOP_K
                     )
                 logger.info("章节检索: 开始执行 LanceDB 查询 project_id={}", self.project_id)
                 results = await query_builder.limit(final_limit).run()
