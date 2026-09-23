@@ -45,21 +45,35 @@ function rotateLogIfNeeded(logPath: string, nextEntrySize: number): void {
       archivedPath = path.join(parsed.dir, `${parsed.name}.${timestamp}.${suffix}${parsed.ext}`);
     }
     renameSync(logPath, archivedPath);
+    // 原文件已被改名，下次写入会新建一个没有 BOM 的文件，缓存必须失效。
+    bomReadyPaths.delete(logPath);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
   }
 }
 
+// 进程内记录已确认/写入过 BOM 的日志文件。
+//
+// 为什么需要这个缓存：ensureUtf8Bom 需要判断文件是否已带 BOM，而「读一个刚被写入的文件」
+// 在 Windows 上实测约 10ms/次（即使只读 3 字节也一样，readFileSync 3.6MB 也才 1.8ms）——
+// 开销来自杀软实时扫描/缓存失效，而不是读取量本身。日志涨到 10MB 上限后更慢。
+// 启动期日志动辄几百行，累计就是数秒的主线程阻塞（启动页卡住不动的成因之一）。
+// 文件轮转（rename 走了原文件）时必须失效，否则新文件会缺 BOM。
+const bomReadyPaths = new Set<string>();
+
 function ensureUtf8Bom(logPath: string): void {
+  if (bomReadyPaths.has(logPath)) return;
   try {
     const content = readFileSync(logPath);
-    if (content.subarray(0, UTF8_BOM.length).equals(UTF8_BOM)) return;
-    writeFileSync(logPath, Buffer.concat([UTF8_BOM, content]));
+    if (!content.subarray(0, UTF8_BOM.length).equals(UTF8_BOM)) {
+      writeFileSync(logPath, Buffer.concat([UTF8_BOM, content]));
+    }
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
     writeFileSync(logPath, UTF8_BOM);
   }
+  bomReadyPaths.add(logPath);
 }
 
 export function getLogPath(name: string): string {
