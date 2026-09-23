@@ -1,11 +1,14 @@
+/* 注意：这两个 svg 是「透明底 + 实心字形」，只作为 mask 使用（取的是 alpha 通道，
+   不是颜色）。如果换成不透明背景的图（例如黑底白字的方块），alpha 全满，
+   渲染出来就会是一个实心色块。 */
 .sidebar-brand-logo {
   display: block;
   width: 24px;
   height: 24px;
   flex: 0 0 24px;
   background-color: var(--gray-11);
-  mask: url("/openfic.svg") center / contain no-repeat;
-  -webkit-mask: url("/openfic.svg") center / contain no-repeat;
+  mask: url("/brand-mark.svg") center / contain no-repeat;
+  -webkit-mask: url("/brand-mark.svg") center / contain no-repeat;
 }
 
 .sidebar-brand-collapsed,
@@ -30,12 +33,15 @@
   height: 40px;
 }
 
+/* brand.svg 画布 5798.5 x 947.8，contain 到 77px 宽后高约 12.6px。
+   字标含 g 的下伸部，若按整盒居中会整体显得偏高，故下移 1.5px 做光学对中。 */
 .sidebar-brand-wordmark {
   display: block;
   width: 77px;
   height: 24px;
   flex: 0 0 auto;
   background-color: var(--gray-11);
-  mask: url("/brand.svg") -28.12px center / 108.4px 24px no-repeat;
-  -webkit-mask: url("/brand.svg") -28.12px center / 108.4px 24px no-repeat;
+  mask: url("/brand.svg") center / contain no-repeat;
+  -webkit-mask: url("/brand.svg") center / contain no-repeat;
+  transform: translateY(1.5px);
 }
