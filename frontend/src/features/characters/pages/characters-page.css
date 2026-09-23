@@ -1,7 +1,7 @@
 .characters-page {
   height: 100%;
   min-height: 0;
-  background: var(--gray-a2);
+  background: var(--color-background);
 }
 
 .characters-page-body {
@@ -204,6 +204,19 @@
   text-align: center;
 }
 
+.characters-editor-loading {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  box-sizing: border-box;
+}
+
+.characters-editor-loading-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
 .characters-editor-shell {
   height: 100%;
   min-height: 0;
@@ -235,7 +248,7 @@
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay);
 }
 
 .characters-page-mobile-sidebar-sheet {
@@ -244,6 +257,8 @@
   left: 0;
   bottom: 0;
   z-index: 11;
+  width: 320px;
+  min-width: 320px;
   height: 100%;
   overflow: hidden;
   border-right: 1px solid var(--gray-a4);

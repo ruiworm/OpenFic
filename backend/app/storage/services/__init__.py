@@ -4,6 +4,7 @@ Service 模块 - 业务逻辑层。
 """
 
 from app.storage.services import (
+    agent_composer_service,
     agent_definition_service,
     agent_memory_service,
     agent_rule_service,
@@ -12,6 +13,7 @@ from app.storage.services import (
     import_service,
     mention_service,
     note_service,
+    note_transfer_service,
     project_service,
     prompt_chain_service,
     revision_content_backfill,
@@ -24,6 +26,7 @@ from app.storage.services import (
 )
 
 __all__ = [
+    "agent_composer_service",
     "agent_definition_service",
     "agent_memory_service",
     "agent_rule_service",
@@ -32,6 +35,7 @@ __all__ = [
     "import_service",
     "mention_service",
     "note_service",
+    "note_transfer_service",
     "project_service",
     "prompt_chain_service",
     "revision_content_backfill",

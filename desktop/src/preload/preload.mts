@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webFrame } from "electron";
 import {
   IpcChannels,
   type BackupDataRequest,
+  type CheckPathOverlapRequest,
   type DataInfo,
   type DataProgressEvent,
   type DeleteInstanceRequest,
@@ -24,6 +25,7 @@ import {
   type ReportErrorPayload,
   type RestoreDataRequest,
   type SaveConfigRequest,
+  type SaveInstanceAppearanceRequest,
   type SaveZoomFactorRequest,
   type SetupProgressEvent,
   type StartupProgressEvent,
@@ -77,6 +79,8 @@ const desktopApi = {
   getConfig: (): Promise<DesktopConfig | null> => ipcRenderer.invoke(IpcChannels.getConfig),
   saveConfig: (config: DesktopConfig): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.saveConfig, { config } satisfies SaveConfigRequest),
+  saveInstanceAppearance: (request: SaveInstanceAppearanceRequest): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.saveInstanceAppearance, request),
   initializeApp: (): Promise<InitializeAppResult> => ipcRenderer.invoke(IpcChannels.initializeApp),
   cancelStartup: (): Promise<void> => ipcRenderer.invoke(IpcChannels.cancelStartup),
   ensureInstanceSession: (partition: string): Promise<void> =>
@@ -100,8 +104,10 @@ const desktopApi = {
   getDefaultDataDir: (): Promise<string> => ipcRenderer.invoke(IpcChannels.getDefaultDataDir),
   getDataInfo: (instanceId: string): Promise<DataInfo> =>
     ipcRenderer.invoke(IpcChannels.getDataInfo, { instanceId } satisfies GetDataInfoRequest),
-  inspectDataDir: (dataDir: string): Promise<InspectDataDirResult> =>
-    ipcRenderer.invoke(IpcChannels.inspectDataDir, { dataDir } satisfies InspectDataDirRequest),
+  inspectDataDir: (dataDir: string, installDir?: string): Promise<InspectDataDirResult> =>
+    ipcRenderer.invoke(IpcChannels.inspectDataDir, { dataDir, installDir } satisfies InspectDataDirRequest),
+  checkPathOverlap: (dataDir: string, installDir?: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.checkPathOverlap, { dataDir, installDir } satisfies CheckPathOverlapRequest),
   migrateData: (instanceId: string, newDataDir: string, deleteOldDir: boolean): Promise<MigrateDataResult> =>
     ipcRenderer.invoke(IpcChannels.migrateData, { instanceId, newDataDir, deleteOldDir } satisfies MigrateDataRequest),
   backupData: (instanceId: string, targetPath: string): Promise<void> =>

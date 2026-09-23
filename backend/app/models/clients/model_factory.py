@@ -6,6 +6,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
 
 from app.core.utils.tiktoken import seed_bundled_encodings
+from app.models.adapters.anthropic_compatible import ANTHROPIC_COMPATIBLE_PROVIDER_TYPES
 from app.models.clients.deepseek_payload import patch_deepseek_reasoning_payload
 from app.models.clients.model_params import (
     DEFAULT_FREQUENCY_PENALTY,
@@ -33,6 +34,7 @@ class ModelConfig:
     base_url: str
     api_key: str
     model_id: str
+    custom_headers: dict[str, str] | None = None
     max_context_tokens: int | None = None
     temperature: float | None = DEFAULT_TEMPERATURE
     top_p: float | None = DEFAULT_TOP_P
@@ -94,11 +96,17 @@ def _stream_chunk_timeout() -> float | None:
     return settings.llm_chunk_timeout
 
 
+def _gemini_compatible_base_url(base_url: str) -> str:
+    normalized_url = base_url.rstrip("/")
+    return normalized_url.removesuffix("/v1beta")
+
+
 def _openai_compatible_kwargs(config: ModelConfig) -> dict[str, Any]:
     kwargs = _compact_kwargs(
         model=config.model_id,
         api_key=config.api_key,
         base_url=config.base_url or None,
+        default_headers=config.custom_headers or None,
         temperature=_non_default(config.temperature, DEFAULT_TEMPERATURE),
         top_p=_non_default(config.top_p, DEFAULT_TOP_P),
         max_tokens=config.max_tokens,
@@ -132,13 +140,18 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
     provider = config.provider_type
     reasoning_effort = _enabled_reasoning_effort(config)
 
-    if provider in {"anthropic", "anthropic-compatible"}:
+    if (
+        provider == "anthropic"
+        or provider == "anthropic-compatible"
+        or provider in ANTHROPIC_COMPATIBLE_PROVIDER_TYPES
+    ):
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(**_compact_kwargs(
             model=config.model_id,
             api_key=config.api_key,
             base_url=config.base_url or None,
+            default_headers=config.custom_headers or None,
             temperature=_non_default(config.temperature, DEFAULT_TEMPERATURE),
             top_p=_non_default(config.top_p, DEFAULT_TOP_P),
             top_k=_non_default(config.top_k, DEFAULT_TOP_K),
@@ -164,6 +177,27 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
         if config.base_url:
             google_kwargs["client_options"] = {"api_endpoint": config.base_url}
         return ChatGoogleGenerativeAI(**google_kwargs)
+
+    if provider == "gemini-compatible":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        gemini_kwargs = _compact_kwargs(
+            model=config.model_id,
+            google_api_key=config.api_key,
+            temperature=_non_default(config.temperature, DEFAULT_TEMPERATURE),
+            top_p=_non_default(config.top_p, DEFAULT_TOP_P),
+            top_k=_non_default(config.top_k, DEFAULT_TOP_K),
+            max_output_tokens=config.max_tokens,
+            thinking_level=_three_level_reasoning_effort(reasoning_effort),
+            additional_headers=config.custom_headers or None,
+            max_retries=0,
+            api_version="v1beta",
+        )
+        if config.base_url:
+            gemini_kwargs["client_options"] = {
+                "api_endpoint": _gemini_compatible_base_url(config.base_url)
+            }
+        return ChatGoogleGenerativeAI(**gemini_kwargs)
 
     if provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek
@@ -295,6 +329,14 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
             max_retries=0,
         ))
 
+    if provider == "openai-compatible-responses":
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            **_openai_compatible_kwargs(config),
+            use_responses_api=True,
+        )
+
     if provider == "nvidia-ai-endpoints":
         from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
@@ -310,6 +352,40 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
         return model.with_thinking_mode(enabled=True) if reasoning_effort else model
 
     # OpenAI-compatible fallback (openai, huggingface, openai-compatible, unknown)
-    from langchain_openai import ChatOpenAI
+    from langchain_core.outputs import ChatGenerationChunk
+    from langchain_openai import ChatOpenAI as _ChatOpenAI
+
+    class ChatOpenAI(_ChatOpenAI):
+        def _convert_chunk_to_generation_chunk(
+            self,
+            chunk: dict,
+            default_chunk_class: type,
+            base_generation_info: dict | None,
+        ) -> ChatGenerationChunk | None:
+            generation_chunk = super()._convert_chunk_to_generation_chunk(
+                chunk,
+                default_chunk_class,
+                base_generation_info,
+            )
+            if generation_chunk is None:
+                return None
+
+            choices = chunk.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return generation_chunk
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                return generation_chunk
+            delta = choice.get("delta")
+            reasoning_content = (
+                delta.get("reasoning_content")
+                if isinstance(delta, dict)
+                else None
+            )
+            if isinstance(reasoning_content, str):
+                generation_chunk.message.additional_kwargs["reasoning_content"] = (
+                    reasoning_content
+                )
+            return generation_chunk
 
     return ChatOpenAI(**_openai_compatible_kwargs(config))

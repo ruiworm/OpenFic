@@ -1,16 +1,15 @@
-import { Box, Flex, Text, IconButton } from "@radix-ui/themes";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
-import { AtSign, Globe, FileText } from "lucide-react";
+import { AtSign } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
 import wordsCountModule from "words-count";
 
 import { toast } from "@/components";
-import { TitleInput, EditorToolbar, Spinner, type EditorToolbarExtraAction } from "@/components";
+import { TitleInput, EditorToolbar, Spinner } from "@/components";
 import { ContextMenu } from "@/components";
 import {
   buildChapterMentionTag,
@@ -56,15 +55,17 @@ interface WordsCountModule {
 
 const wordsCount = (wordsCountModule as unknown as WordsCountModule).wordsCount;
 
+function getLineNumberDigits(lineCount: number): number {
+  return String(Math.max(lineCount, 1)).length;
+}
+
 interface ChapterEditorProps {
   chapterId: string | null;
   scrollTop?: number;
   onChapterUpdate?: (chapter: Chapter) => void;
   onScrollPositionChange?: (chapterId: string, scrollTop: number) => void;
   onAddToConversation?: (markup: string) => void;
-  projectId?: string;
   isAgentLocked?: boolean;
-  onOpenSummary?: () => void;
   onSelectionChange?: (hasSelection: boolean) => void;
   addSelectionToConversationRef?: React.MutableRefObject<(() => void) | null>;
 }
@@ -78,9 +79,7 @@ interface ChapterEditorContentProps {
   onChapterUpdate?: (chapter: Chapter) => void;
   onScrollPositionChange?: (chapterId: string, scrollTop: number) => void;
   onAddToConversation?: (markup: string) => void;
-  projectId?: string;
   isAgentLocked?: boolean;
-  onOpenSummary?: () => void;
   onSelectionChange?: (hasSelection: boolean) => void;
   addSelectionToConversationRef?: React.MutableRefObject<(() => void) | null>;
 }
@@ -94,9 +93,7 @@ function ChapterEditorContent({
   onChapterUpdate,
   onScrollPositionChange,
   onAddToConversation,
-  projectId,
   isAgentLocked = false,
-  onOpenSummary,
   onSelectionChange,
   addSelectionToConversationRef,
 }: ChapterEditorContentProps) {
@@ -108,13 +105,13 @@ function ChapterEditorContent({
   const latestScrollTopRef = useRef(scrollTop);
   const scrollPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { updateTabTitle } = useTabsStore();
-  const navigate = useNavigate();
   const { clearWorkingCopy, persistWorkingCopy } = workingCopy;
 
   const { data: settings } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
+  const showLineNumbers = settings?.editorShowLineNumbers ?? false;
   const autoIndentRef = useRef(settings?.editorAutoIndent ?? false);
   const autoConvertPunctuationRef = useRef(settings?.editorAutoConvertPunctuation ?? false);
   const autoPairSymbolsRef = useRef(settings?.editorAutoPairSymbols ?? false);
@@ -143,6 +140,7 @@ function ChapterEditorContent({
   const [isSaving, setIsSaving] = useState(false);
   const [findReplaceMode, setFindReplaceMode] = useState<"closed" | "find" | "replace">("closed");
   const [wordCount, setWordCount] = useState(() => wordsCount(initialDraft.content));
+  const [lineNumberDigits, setLineNumberDigits] = useState(1);
   const saveStatus = isSaving ? "saving" : hasChanges ? "unsaved" : "saved";
   const latestDraftRef = useRef(initialDraft);
   const latestDraftUpdatedAtRef = useRef(initialDraftUpdatedAt);
@@ -172,44 +170,6 @@ function ChapterEditorContent({
     },
     [t],
   );
-
-  const handleWorldInfoClick = useCallback(() => {
-    if (projectId) {
-      navigate(`/world-info?projectId=${projectId}&from=writing`);
-    }
-  }, [navigate, projectId]);
-
-  const extraActions: EditorToolbarExtraAction[] = useMemo(() => {
-    const actions: EditorToolbarExtraAction[] = [];
-
-    if (projectId) {
-      actions.push({
-        id: "worldInfo",
-        icon: <Globe size={18} />,
-        label: t("editor.worldInfo"),
-        onClick: handleWorldInfoClick,
-      });
-    }
-
-    return actions;
-  }, [projectId, t, handleWorldInfoClick]);
-
-  const toolbarPrefix = useMemo(() => {
-    if (!projectId || !chapter.id) return null;
-
-    return (
-      <>
-        <IconButton
-          variant="ghost"
-          size="2"
-          aria-label={t("summary.openPanel")}
-          onClick={onOpenSummary}
-        >
-          <FileText size={18} />
-        </IconButton>
-      </>
-    );
-  }, [projectId, chapter.id, onOpenSummary, t]);
 
   const openFind = useCallback(() => {
     if (isAgentLocked) {
@@ -289,32 +249,43 @@ function ChapterEditorContent({
     [updateDirtyState],
   );
 
-  const editor = useEditor({
-    extensions: createEditorExtensions({
-      placeholder: t("writing.contentPlaceholder"),
-      autoIndent: () => autoIndentRef.current,
-      autoConvertPunctuation: () => autoConvertPunctuationRef.current,
-      autoPairSymbols: () => autoPairSymbolsRef.current,
-      shortcuts: {
-        onFind: openFind,
-        onReplace: openReplace,
-        onSave: () => {
-          if (isAgentLocked) {
-            showLockedToast();
-            return;
-          }
-          window.dispatchEvent(new Event(MANUAL_SAVE_EVENT));
+  const editorExtensions = useMemo(
+    () =>
+      createEditorExtensions({
+        placeholder: t("writing.contentPlaceholder"),
+        autoIndent: () => autoIndentRef.current,
+        autoConvertPunctuation: () => autoConvertPunctuationRef.current,
+        autoPairSymbols: () => autoPairSymbolsRef.current,
+        shortcuts: {
+          onFind: openFind,
+          onReplace: openReplace,
+          onSave: () => {
+            if (isAgentLocked) {
+              showLockedToast();
+              return;
+            }
+            window.dispatchEvent(new Event(MANUAL_SAVE_EVENT));
+          },
         },
-      },
-    }),
+      }),
+    [isAgentLocked, openFind, openReplace, showLockedToast, t],
+  );
+  const initialContentRef = useRef(
+    initialDraft.content ? newlinesToHtml(initialDraft.content) : "",
+  );
+
+  const editor = useEditor({
+    extensions: editorExtensions,
     editable: !isAgentLocked,
-    content: initialDraft.content ? newlinesToHtml(initialDraft.content) : "",
+    content: initialContentRef.current,
     onUpdate: ({ editor }) => {
       if (isAgentLocked) return;
       syncDirtyStateFromEditor(editor);
+      setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       setWordCount(wordsCount(editor.getText()));
     },
     onCreate: ({ editor }) => {
+      setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       setWordCount(wordsCount(editor.getText()));
     },
   });
@@ -469,6 +440,7 @@ function ChapterEditorContent({
 
     if (currentContent !== nextContent) {
       editor.commands.setContent(nextContent, { emitUpdate: false });
+      setLineNumberDigits(getLineNumberDigits(editor.state.doc.childCount));
       queueMicrotask(() => {
         setWordCount(wordsCount(editor.getText()));
       });
@@ -638,6 +610,10 @@ function ChapterEditorContent({
   }, [addSelectionToConversation, chapter.id, chapter.title, editor, onAddToConversation, t]);
 
   const editorMaxWidth = 800;
+  const lineNumberWidth = `max(1.5rem, calc(${lineNumberDigits}ch + 0.25rem))`;
+  const lineNumberWidthStyle = showLineNumbers
+    ? ({ "--editor-line-number-width": lineNumberWidth } as React.CSSProperties)
+    : undefined;
 
   return (
     <Box
@@ -655,8 +631,9 @@ function ChapterEditorContent({
         hasChanges={hasChanges}
         isAgentLocked={isAgentLocked}
         onLockedAction={showLockedToast}
-        extraActions={extraActions}
-        toolbarPrefix={toolbarPrefix}
+        onOpenFind={openFind}
+        onOpenReplace={openReplace}
+        showChapterTools
       />
 
       <AnimatePresence>
@@ -673,7 +650,7 @@ function ChapterEditorContent({
       <Box
         ref={containerRef}
         style={{ flex: 1, minHeight: 0, overflow: "auto" }}
-        className={`tiptap-editor-wrapper ${scrollbarProps.className}`}
+        className={`tiptap-editor-wrapper${showLineNumbers ? " tiptap-editor-wrapper--line-numbers" : ""} ${scrollbarProps.className}`}
         onWheel={scrollbarProps.onWheel}
         onMouseMove={scrollbarProps.onMouseMove}
         onMouseLeave={scrollbarProps.onMouseLeave}
@@ -681,10 +658,10 @@ function ChapterEditorContent({
         onClick={isAgentLocked ? showLockedToast : undefined}
       >
         <Box
+          className="chapter-editor-content"
           style={{
             maxWidth: editorMaxWidth,
-            margin: "0 auto",
-            padding: "0 24px",
+            ...lineNumberWidthStyle,
           }}
         >
           <TitleInput
@@ -705,7 +682,7 @@ function ChapterEditorContent({
           >
             <EditorContent
               editor={editor}
-              className="tiptap-editor"
+              className={`tiptap-editor${showLineNumbers ? " tiptap-editor--line-numbers" : ""}`}
             />
           </Box>
         </Box>
@@ -726,7 +703,7 @@ function ChapterEditorContent({
         align="center"
         style={{
           borderTop: "1px solid var(--gray-a4)",
-          background: "var(--gray-a2)",
+          background: "var(--theme-editor-bar-background)",
         }}
       >
         <Text
@@ -754,9 +731,7 @@ export function ChapterEditor({
   onChapterUpdate,
   onScrollPositionChange,
   onAddToConversation,
-  projectId,
   isAgentLocked = false,
-  onOpenSummary,
   onSelectionChange,
   addSelectionToConversationRef,
 }: ChapterEditorProps) {
@@ -806,9 +781,7 @@ export function ChapterEditor({
       onChapterUpdate={onChapterUpdate}
       onScrollPositionChange={onScrollPositionChange}
       onAddToConversation={onAddToConversation}
-      projectId={projectId}
       isAgentLocked={isAgentLocked}
-      onOpenSummary={onOpenSummary}
       onSelectionChange={onSelectionChange}
       addSelectionToConversationRef={addSelectionToConversationRef}
     />
@@ -823,9 +796,7 @@ function ChapterEditorWorkingCopy({
   onChapterUpdate,
   onScrollPositionChange,
   onAddToConversation,
-  projectId,
   isAgentLocked,
-  onOpenSummary,
   onSelectionChange,
   addSelectionToConversationRef,
 }: Omit<ChapterEditorContentProps, "workingCopy">) {
@@ -845,9 +816,7 @@ function ChapterEditorWorkingCopy({
       onChapterUpdate={onChapterUpdate}
       onScrollPositionChange={onScrollPositionChange}
       onAddToConversation={onAddToConversation}
-      projectId={projectId}
       isAgentLocked={isAgentLocked}
-      onOpenSummary={onOpenSummary}
       onSelectionChange={onSelectionChange}
       addSelectionToConversationRef={addSelectionToConversationRef}
     />

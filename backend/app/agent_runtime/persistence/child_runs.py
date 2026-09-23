@@ -2,11 +2,12 @@
 
 import asyncio
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
@@ -178,13 +179,65 @@ async def create_child_run(
 async def list_child_runs_for_parent(
     session: AsyncSession,
     parent_session_id: str,
+    *,
+    is_active: bool | None = None,
+    statuses: Sequence[str] | None = None,
 ) -> list[AgentChildRun]:
+    query = select(AgentChildRun).where(
+        col(AgentChildRun.parent_session_id) == parent_session_id
+    )
+    if is_active is not None:
+        query = query.where(col(AgentChildRun.is_active).is_(is_active))
+    if statuses:
+        query = query.where(col(AgentChildRun.status).in_(statuses))
+    query = query.order_by(col(AgentChildRun.created_at).asc())
+    result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+async def list_child_runs_for_parents(
+    session: AsyncSession,
+    parent_session_ids: Sequence[str],
+) -> list[AgentChildRun]:
+    """批量读取多个父 session 的直接 child run。"""
+    normalized_ids = list(dict.fromkeys(session_id for session_id in parent_session_ids if session_id))
+    if not normalized_ids:
+        return []
     result = await session.execute(
         select(AgentChildRun)
-        .where(col(AgentChildRun.parent_session_id) == parent_session_id)
-        .order_by(col(AgentChildRun.created_at).asc())
+        .where(col(AgentChildRun.parent_session_id).in_(normalized_ids))
+        .order_by(col(AgentChildRun.parent_session_id), col(AgentChildRun.created_at).asc())
     )
     return list(result.scalars().all())
+
+
+async def get_latest_child_run_requests(
+    session: AsyncSession,
+    child_run_ids: Sequence[str],
+) -> dict[str, AgentChildRunRequest]:
+    if not child_run_ids:
+        return {}
+
+    latest_sequences = (
+        select(
+            col(AgentChildRunRequest.child_run_id),
+            func.max(col(AgentChildRunRequest.seq)).label("latest_seq"),
+        )
+        .where(col(AgentChildRunRequest.child_run_id).in_(child_run_ids))
+        .group_by(col(AgentChildRunRequest.child_run_id))
+        .subquery()
+    )
+    result = await session.execute(
+        select(AgentChildRunRequest).join(
+            latest_sequences,
+            and_(
+                col(AgentChildRunRequest.child_run_id)
+                == latest_sequences.c.child_run_id,
+                col(AgentChildRunRequest.seq) == latest_sequences.c.latest_seq,
+            ),
+        )
+    )
+    return {row.child_run_id: row for row in result.scalars().all()}
 
 
 async def get_child_run_by_pending_approval(
@@ -806,15 +859,11 @@ async def list_active_child_runs(
     *,
     parent_session_id: str,
 ) -> list[AgentChildRun]:
-    result = await session.execute(
-        select(AgentChildRun)
-        .where(
-            col(AgentChildRun.parent_session_id) == parent_session_id,
-            col(AgentChildRun.is_active).is_(True),
-        )
-        .order_by(col(AgentChildRun.created_at).asc())
+    return await list_child_runs_for_parent(
+        session,
+        parent_session_id,
+        is_active=True,
     )
-    return list(result.scalars().all())
 
 
 async def _child_has_pending_requests(

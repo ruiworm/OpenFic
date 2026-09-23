@@ -7,11 +7,15 @@ TOOL_CATEGORIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "orchestration": (
             "dispatch_subagent",
+            "list_subagents",
             "notify_subagent",
             "recycle_subagent",
         ),
         "interaction": ("ask_user",),
+        "web_search": ("web_search",),
+        "web_fetch": ("web_fetch",),
         "plan": ("write_plan",),
+        "file_read": ("list_file", "read_file"),
         "chapter_read": (
             "list_volumes",
             "list_chapters",
@@ -64,7 +68,10 @@ TOOL_CATEGORY_DISPLAY: Mapping[str, str] = MappingProxyType(
     {
         "orchestration": "委派子任务",
         "interaction": "提问",
+        "web_search": "联网搜索",
+        "web_fetch": "网页读取",
         "plan": "计划",
+        "file_read": "附件读取",
         "chapter_read": "章节读取",
         "summary_read": "摘要读取",
         "character_read": "角色读取",

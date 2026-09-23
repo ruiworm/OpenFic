@@ -6,6 +6,7 @@ export const AGENT_RUNNING_STATUS = {
   writingReply: "writingReply",
   orchestration: "orchestration",
   interaction: "interaction",
+  fileRead: "fileRead",
   plan: "plan",
   chapterRead: "chapterRead",
   summaryRead: "summaryRead",
@@ -23,9 +24,12 @@ export type AgentRunningStatus = (typeof AGENT_RUNNING_STATUS)[keyof typeof AGEN
 
 const TOOL_RUNNING_STATUS: Record<string, AgentRunningStatus> = {
   dispatch_subagent: AGENT_RUNNING_STATUS.orchestration,
+  list_subagents: AGENT_RUNNING_STATUS.orchestration,
   notify_subagent: AGENT_RUNNING_STATUS.orchestration,
   recycle_subagent: AGENT_RUNNING_STATUS.orchestration,
   ask_user: AGENT_RUNNING_STATUS.interaction,
+  list_file: AGENT_RUNNING_STATUS.fileRead,
+  read_file: AGENT_RUNNING_STATUS.fileRead,
   write_plan: AGENT_RUNNING_STATUS.plan,
   list_volumes: AGENT_RUNNING_STATUS.chapterRead,
   list_chapters: AGENT_RUNNING_STATUS.chapterRead,

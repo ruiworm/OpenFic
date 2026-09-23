@@ -1,8 +1,11 @@
 export const REGISTERED_TOOL_NAMES = [
   "dispatch_subagent",
+  "list_subagents",
   "notify_subagent",
   "recycle_subagent",
   "ask_user",
+  "list_file",
+  "read_file",
   "read_chapter",
   "write_chapter",
   "edit_chapter",
@@ -35,6 +38,8 @@ export const REGISTERED_TOOL_NAMES = [
   "edit_world_entry",
   "delete_world_entry",
   "search_chapters",
+  "web_search",
+  "web_fetch",
   "update_index",
   "write_plan",
   "activate_skill",
@@ -46,6 +51,7 @@ export type ToolContentMode = "expandable" | "static" | "hidden";
 export type ToolGroup =
   | "orchestration"
   | "interaction"
+  | "file"
   | "chapter"
   | "note"
   | "volume"
@@ -71,6 +77,13 @@ export const TOOL_DESCRIPTOR_META = {
     isExplore: false,
     contentMode: "expandable",
   },
+  list_subagents: {
+    toolName: "list_subagents",
+    group: "orchestration",
+    tag: "list",
+    isExplore: true,
+    contentMode: "hidden",
+  },
   notify_subagent: {
     toolName: "notify_subagent",
     group: "orchestration",
@@ -91,6 +104,20 @@ export const TOOL_DESCRIPTOR_META = {
     tag: "clarification",
     isExplore: false,
     contentMode: "expandable",
+  },
+  list_file: {
+    toolName: "list_file",
+    group: "file",
+    tag: "list",
+    isExplore: true,
+    contentMode: "hidden",
+  },
+  read_file: {
+    toolName: "read_file",
+    group: "file",
+    tag: "read",
+    isExplore: true,
+    contentMode: "hidden",
   },
   read_chapter: {
     toolName: "read_chapter",
@@ -313,6 +340,20 @@ export const TOOL_DESCRIPTOR_META = {
     toolName: "search_chapters",
     group: "chapter",
     tag: "search",
+    isExplore: true,
+    contentMode: "hidden",
+  },
+  web_search: {
+    toolName: "web_search",
+    group: "context",
+    tag: "web-search",
+    isExplore: true,
+    contentMode: "expandable",
+  },
+  web_fetch: {
+    toolName: "web_fetch",
+    group: "context",
+    tag: "web-fetch",
     isExplore: true,
     contentMode: "hidden",
   },

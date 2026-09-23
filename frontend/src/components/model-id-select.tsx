@@ -20,6 +20,8 @@ import { Spinner } from "@/components";
 import { ProviderIcon } from "@/features/settings/lib/provider-icons";
 import type { AvailableModel, TaskType } from "@/lib/model.types";
 
+import "./model-id-select.css";
+
 import {
   CapabilityIcon,
   ContextBadge,
@@ -52,10 +54,12 @@ interface ModelIdSelectProps {
   refreshDisabled?: boolean;
   emptyOptionLabel?: string;
   compact?: boolean;
+  compactTrigger?: boolean;
   triggerStyle?: React.CSSProperties;
   triggerPrefix?: ReactNode;
   hideTriggerChevron?: boolean;
   triggerClassName?: string;
+  contentClassName?: string;
 }
 
 export function getModelValue(model: ModelIdSelectOption): string {
@@ -155,10 +159,12 @@ export function ModelIdSelect({
   refreshDisabled = false,
   emptyOptionLabel,
   compact = false,
+  compactTrigger = false,
   triggerStyle,
   triggerPrefix,
   hideTriggerChevron = false,
   triggerClassName,
+  contentClassName,
 }: ModelIdSelectProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -172,13 +178,27 @@ export function ModelIdSelect({
   const modelNameSize = compact ? "1" : "2";
   const labelSize = compact ? "1" : "2";
   const showSearchBox = !compact || models.length >= 8;
-  const scrollAreaHeight = compact ? "auto" : 300;
+  const scrollAreaHeight = compact ? "min(300px, calc(100dvh - 104px))" : 300;
   const placeholderHeight = compact ? "auto" : 200;
 
   const selectedModel = useMemo(
     () => models.find((model) => getModelValue(model) === value),
     [models, value],
   );
+  const fallbackTriggerPrefix = selectedModel ? (
+    selectedModel.providerIconPath ? (
+      <ProviderIcon
+        iconPath={selectedModel.providerIconPath}
+        size={14}
+      />
+    ) : (
+      <Component
+        size={14}
+        aria-hidden="true"
+      />
+    )
+  ) : null;
+  const resolvedTriggerPrefix = triggerPrefix ?? (compactTrigger ? fallbackTriggerPrefix : null);
 
   const filteredModels = useMemo(() => {
     if (!open || !isListReady) {
@@ -303,35 +323,32 @@ export function ModelIdSelect({
       type="button"
       variant="surface"
       color={compact ? undefined : "gray"}
-      size={compact ? "1" : "2"}
+      size={compact || compactTrigger ? "1" : "2"}
       disabled={disabled}
-      className={triggerClassName}
+      className={`${triggerClassName ?? ""} ${compactTrigger ? "model-id-select-trigger--compact" : ""}`.trim()}
+      aria-label={compactTrigger ? selectedModel?.name || value : undefined}
       style={{
         width: "100%",
-        justifyContent: "space-between",
+        justifyContent: compactTrigger ? "center" : "space-between",
         ...triggerStyle,
       }}
     >
       <Flex
         align="center"
-        gap="2"
-        className="select-trigger-content"
+        gap={compactTrigger ? "0" : "2"}
+        className={compactTrigger ? "select-trigger-content--icon-only" : "select-trigger-content"}
       >
-        {triggerPrefix ??
-          (compact ? (
-            <Component
-              size={14}
-              aria-hidden="true"
-            />
-          ) : null)}
-        <Text
-          color={selectedModel ? undefined : "gray"}
-          truncate
-        >
-          {selectedModel?.name || placeholder || t("models.modelIdPlaceholder")}
-        </Text>
+        {resolvedTriggerPrefix}
+        {!compactTrigger ? (
+          <Text
+            color={selectedModel ? undefined : "gray"}
+            truncate
+          >
+            {selectedModel?.name || placeholder || t("models.modelIdPlaceholder")}
+          </Text>
+        ) : null}
       </Flex>
-      {hideTriggerChevron ? null : (
+      {hideTriggerChevron || compactTrigger ? null : (
         <ChevronDown
           size={16}
           aria-hidden="true"
@@ -352,6 +369,7 @@ export function ModelIdSelect({
       <Popover.Trigger>{trigger}</Popover.Trigger>
 
       <Popover.Content
+        className={contentClassName}
         style={{
           width: popoverWidth,
           minWidth: popoverWidth,
@@ -384,6 +402,8 @@ export function ModelIdSelect({
                   <IconButton
                     size="1"
                     variant="soft"
+                    color="gray"
+                    highContrast
                     onClick={onRefresh}
                     disabled={refreshDisabled || !onRefresh || isRefreshing}
                     aria-label={t("models.fetchRemoteModels")}
@@ -396,7 +416,10 @@ export function ModelIdSelect({
             </Box>
           ) : null}
 
-          <ScrollArea style={{ height: scrollAreaHeight }}>
+          <ScrollArea
+            scrollbars="vertical"
+            style={{ height: scrollAreaHeight }}
+          >
             {isLoading || (open && !isListReady) ? (
               <Flex
                 align="center"
@@ -580,13 +603,14 @@ export function ModelIdSelect({
                       <Flex
                         align="center"
                         gap={compact ? "1" : "2"}
+                        style={{ minWidth: 0 }}
                       >
-                        {compact ? null : (
+                        {!compact && model.providerIconPath ? (
                           <ProviderIcon
                             iconPath={model.providerIconPath}
                             size={24}
                           />
-                        )}
+                        ) : null}
                         <Flex
                           direction="column"
                           gap="1"
@@ -596,13 +620,14 @@ export function ModelIdSelect({
                             align="start"
                             justify="between"
                             gap="2"
+                            style={{ minWidth: 0 }}
                           >
                             <Flex
                               align="center"
                               gap="1"
-                              style={{ minWidth: 0 }}
+                              style={{ minWidth: 0, flex: "1 1 auto" }}
                             >
-                              {compact ? (
+                              {compact && model.providerIconPath ? (
                                 <ProviderIcon
                                   iconPath={model.providerIconPath}
                                   size={14}
@@ -610,9 +635,11 @@ export function ModelIdSelect({
                               ) : null}
                               <Text
                                 size={modelNameSize}
+                                truncate
                                 weight="medium"
                                 style={{
                                   minWidth: 0,
+                                  flex: "1 1 auto",
                                   color: showToolCallWarning ? "#c64545" : undefined,
                                 }}
                               >

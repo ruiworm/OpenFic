@@ -102,34 +102,61 @@ class WriteChapterTool(AgentTool):
             raise ToolExecutionError(str(exc)) from exc
         session = await create_session()
         try:
-            volume = resolve_volume_from_list(
-                await volume_repo.list_by_project(session, self.project_id),
-                VolumeRef.model_validate(volume_ref),
-            )
-            async with await keyed_lock(volume.id):
-                before = images_by_id(await chapter_repo.list_by_project(session, self.project_id))
-                max_order = await chapter_repo.get_max_order(session, volume.id)
+            async with await keyed_lock(("chapters", self.project_id)):
+                volume = resolve_volume_from_list(
+                    await volume_repo.list_by_project(session, self.project_id),
+                    VolumeRef.model_validate(volume_ref),
+                )
+                volume_id = volume.id
+                max_order = await chapter_repo.get_max_order(session, volume_id)
                 if chapter_ref is not None:
                     ref = ChapterRef.model_validate(chapter_ref)
-                    chapters = await chapter_repo.list_by_volume(session, volume.id)
-                    match = resolve_chapter_from_list(chapters, ref)
+                    matched = await chapter_repo.get_by_volume_ref(
+                        session,
+                        volume_id,
+                        ref_type=ref.type,
+                        ref_value=ref.value,
+                    )
+                    match = resolve_chapter_from_list(
+                        [matched] if matched is not None else [], ref
+                    )
                     insert_order = match.order
+                    chapters = await chapter_repo.list_by_volume_from_order(
+                        session, volume_id, insert_order
+                    )
+                    before = images_by_id(
+                        chapters
+                    )
                     await chapter_repo.shift_orders(
-                        session, volume.id, insert_order, max_order, 1
+                        session, volume_id, insert_order, max_order, 1
                     )
                     order = insert_order
                 else:
+                    before = {}
                     order = max_order + 1
                 chapter = Chapter(
                     project_id=self.project_id,
-                    volume_id=volume.id,
+                    volume_id=volume_id,
                     title=title,
                     content=content,
                     word_count=count_words(content),
                     order=order,
                 )
                 chapter = await chapter_repo.create(session, chapter)
-                after = images_by_id(await chapter_repo.list_by_project(session, self.project_id))
+                if chapter_ref is None:
+                    after = images_by_id([chapter])
+                else:
+                    after_chapters = await chapter_repo.list_by_volume_from_order(
+                        session, volume_id, order
+                    )
+                    after = images_by_id(
+                        [
+                            chapter
+                            for chapter in after_chapters
+                            if chapter.order >= order
+                        ]
+                        + [chapter]
+                    )
                 affected = await record_chapter_diffs(
                     session,
                     revision_id=revision_id,
@@ -146,7 +173,7 @@ class WriteChapterTool(AgentTool):
                         before=before.get(chapter_id),
                         after=after.get(chapter_id),
                     )
-                await refresh_volume_chapter_count(session, volume.id)
+                await refresh_volume_chapter_count(session, volume_id)
                 await refresh_project_stats(session, self.project_id)
                 from app.background.jobs import service as background_service
                 from app.retrieval.chapter_index import safe_maybe_enqueue_auto_index
@@ -158,6 +185,7 @@ class WriteChapterTool(AgentTool):
                 chapter_diff = build_chapter_diff_preview(
                     None,
                     chapter_preview_from_object(chapter),
+                    path=[volume.title.strip()],
                 )
                 return json.dumps(
                     {

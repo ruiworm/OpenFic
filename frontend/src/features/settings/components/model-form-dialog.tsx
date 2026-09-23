@@ -25,6 +25,7 @@ import {
 } from "../lib/model-api";
 import {
   isSelectableModelProvider,
+  isCustomProviderType,
   resolveProviderCatalogType,
   resolveProviderDisplayName,
   supportsEmbeddingDimensions,
@@ -421,6 +422,7 @@ export function ModelFormDialog({
     >
       <Dialog.Content
         maxWidth="600px"
+        className="settings-background-panel"
         style={{
           maxHeight: "90vh",
           overflow: "hidden",
@@ -636,6 +638,8 @@ export function ModelFormDialog({
                       onRefresh={handleRefreshRemoteModels}
                       isRefreshing={loadingModels && modelOptionsSource === "remote"}
                       refreshDisabled={!providerId || loadingModels}
+                      triggerClassName="select-trigger--background"
+                      contentClassName="settings-background-panel"
                     />
                   )}
                 />
@@ -647,8 +651,8 @@ export function ModelFormDialog({
                     {t(`models.${errors.modelId.message}`)}
                   </Text>
                 )}
-                {(selectedProvider?.providerType === "openai-compatible" ||
-                  selectedProvider?.providerType === "anthropic-compatible") &&
+                {selectedProvider &&
+                  isCustomProviderType(selectedProvider.providerType) &&
                   !selectedCatalogProviderType &&
                   !loadingModels && (
                     <Text

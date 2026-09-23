@@ -8,9 +8,11 @@ import {
   UserRoundPen,
   UserRoundX,
   FilePenLine,
+  FileText,
   FileXCorner,
   FolderPen,
   FolderX,
+  Globe,
   Summary,
   ListOrdered,
   MessageCircleQuestionMark,
@@ -51,6 +53,8 @@ import {
 } from "../orchestration/recycle-subagent-tool-message";
 import { PlanToolMessage } from "../plan/plan-tool-message";
 import { getPlanToolDisplayConfig } from "../plan/plan-tool-message.utils";
+import { WebSearchToolIcon, WebSearchToolMessage } from "../web-search/web-search-tool-message";
+import { normalizeWebSearchData } from "../web-search/web-search-tool-message.utils";
 import { WorldEntryToolMessage } from "../world-entry/world-entry-tool-message";
 import {
   getExploreToolNames as getCatalogExploreToolNames,
@@ -74,12 +78,15 @@ import {
   getChapterPayload,
   getChapterSummaryList,
   getCharacterList,
+  getFileList,
   getCharacterPayload,
   getNoteItemList,
   getNotePayload,
   getRangeSummaryList,
   getReadChapterDetail,
+  getReadFileDetail,
   getStreamingData,
+  getSubagentList,
   getToolRef,
   getToolResultData,
   getVolumeList,
@@ -98,6 +105,8 @@ export interface ToolDescriptor {
   isExplore: boolean;
   contentMode: ToolContentMode;
   icon: LucideIcon;
+  getIconUrl?: (message: AgentMessage) => string | undefined;
+  renderIcon?: (message: AgentMessage, className: string) => ReactNode;
   getTitle: (message: AgentMessage) => string;
   getDetail?: (message: AgentMessage) => string | undefined;
   defaultExpanded?: (message: AgentMessage) => boolean;
@@ -124,6 +133,17 @@ const TOOL_REGISTRY = {
     getTitle: (message) => getSubagentDispatchTitle(message),
     getDetail: (message) => getSubagentDispatchDetail(message),
     render: (message) => <DispatchSubagentToolMessageBody message={message} />,
+  },
+  list_subagents: {
+    toolName: "list_subagents",
+    group: "orchestration",
+    tag: "list",
+    isExplore: true,
+    contentMode: "hidden",
+    icon: ListOrdered,
+    getTitle: () => i18n.t("assistant.tools.listSubagents"),
+    getDetail: (message) =>
+      i18n.t("assistant.tools.subagentCount", { count: getSubagentList(message).length }),
   },
   notify_subagent: {
     toolName: "notify_subagent",
@@ -156,6 +176,31 @@ const TOOL_REGISTRY = {
     getTitle: (message) => getAskUserTitle(message),
     getDetail: (message) => getAskUserQuestionCountDetail(message),
     render: (message) => <AskUserToolMessage message={message} />,
+  },
+  list_file: {
+    toolName: "list_file",
+    group: "file",
+    tag: "list",
+    isExplore: true,
+    contentMode: "hidden",
+    icon: FileText,
+    getTitle: () => i18n.t("assistant.tools.listFile"),
+    getDetail: (message) => {
+      const files = getFileList(message);
+      return files.length > 0
+        ? i18n.t("assistant.tools.fileCount", { count: files.length })
+        : undefined;
+    },
+  },
+  read_file: {
+    toolName: "read_file",
+    group: "file",
+    tag: "read",
+    isExplore: true,
+    contentMode: "hidden",
+    icon: FileText,
+    getTitle: () => i18n.t("assistant.tools.readFile"),
+    getDetail: (message) => getReadFileDetail(message),
   },
   read_chapter: {
     toolName: "read_chapter",
@@ -384,6 +429,61 @@ const TOOL_REGISTRY = {
       return query
         ? `${query} · ${i18n.t("assistant.tools.matchCount", { count: results.length })}`
         : i18n.t("assistant.tools.matchedChapters", { count: results.length });
+    },
+  },
+  web_search: {
+    toolName: "web_search",
+    group: "context",
+    tag: "web-search",
+    isExplore: true,
+    contentMode: "expandable",
+    icon: Globe,
+    renderIcon: (message, className) => (
+      <WebSearchToolIcon
+        message={message}
+        className={className}
+      />
+    ),
+    getTitle: () => i18n.t("assistant.tools.webSearch"),
+    getDetail: (message) => {
+      const data = normalizeWebSearchData(getToolResultData(message) ?? getStreamingData(message));
+      if (data.query && data.results.length > 0) {
+        return `${i18n.t("assistant.tools.webSearchResultCount", { count: data.results.length })} · ${data.query}`;
+      }
+      if (data.results.length > 0) {
+        return i18n.t("assistant.tools.webSearchResultCount", { count: data.results.length });
+      }
+      return data.query;
+    },
+    defaultExpanded: () => false,
+    render: (message) => <WebSearchToolMessage message={message} />,
+  },
+  web_fetch: {
+    toolName: "web_fetch",
+    group: "context",
+    tag: "web-fetch",
+    isExplore: true,
+    contentMode: "hidden",
+    icon: Globe,
+    getIconUrl: (message) => {
+      const data = getToolResultData(message) ?? getStreamingData(message);
+      if (!isRecord(data)) return undefined;
+      const iconUrl = asString(data.icon_url);
+      if (!iconUrl) return undefined;
+      try {
+        const parsed = new URL(iconUrl);
+        return parsed.protocol === "http:" || parsed.protocol === "https:"
+          ? parsed.href
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    getTitle: () => i18n.t("assistant.tools.webFetch"),
+    getDetail: (message) => {
+      const data = getToolResultData(message) ?? getStreamingData(message);
+      if (!isRecord(data)) return undefined;
+      return asString(data.title) ?? asString(data.final_url) ?? asString(data.url);
     },
   },
   update_index: {

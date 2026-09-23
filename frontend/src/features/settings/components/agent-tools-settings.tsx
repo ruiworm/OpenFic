@@ -27,6 +27,14 @@ const TOOL_DISPLAY_KEYS: Record<string, { name: string; description: string }> =
     name: "settings.agentTool.askUser.name",
     description: "settings.agentTool.askUser.description",
   },
+  list_file: {
+    name: "settings.agentTool.listFile.name",
+    description: "settings.agentTool.listFile.description",
+  },
+  read_file: {
+    name: "settings.agentTool.readFile.name",
+    description: "settings.agentTool.readFile.description",
+  },
   write_plan: {
     name: "settings.agentTool.writePlan.name",
     description: "settings.agentTool.writePlan.description",
@@ -167,6 +175,10 @@ const TOOL_DISPLAY_KEYS: Record<string, { name: string; description: string }> =
     name: "settings.agentTool.dispatchSubagent.name",
     description: "settings.agentTool.dispatchSubagent.description",
   },
+  list_subagents: {
+    name: "settings.agentTool.listSubagents.name",
+    description: "settings.agentTool.listSubagents.description",
+  },
   notify_subagent: {
     name: "settings.agentTool.notifySubagent.name",
     description: "settings.agentTool.notifySubagent.description",
@@ -182,6 +194,10 @@ const TOOL_DISPLAY_KEYS: Record<string, { name: string; description: string }> =
   reference_skill: {
     name: "settings.agentTool.referenceSkill.name",
     description: "settings.agentTool.referenceSkill.description",
+  },
+  web_fetch: {
+    name: "settings.agentTool.webFetch.name",
+    description: "settings.agentTool.webFetch.description",
   },
 };
 

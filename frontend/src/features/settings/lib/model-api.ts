@@ -63,6 +63,11 @@ interface ModelProviderValidateApiResponse {
   models: ModelProviderAvailableModelApiResponse[];
 }
 
+export interface ModelValidationResponse {
+  success: boolean;
+  message: string;
+}
+
 interface ModelProviderCatalogModelsApiResponse {
   provider: ModelProviderCatalogProviderResponse;
   task_type: TaskType;
@@ -125,6 +130,7 @@ function transformProvider(raw: ModelProviderResponse): ModelProvider {
     name: raw.name,
     url: raw.url,
     providerType: raw.provider_type as ModelProvider["providerType"],
+    customHeaderNames: raw.custom_header_names ?? [],
     supportedTaskTypes: raw.supported_task_types as ModelProvider["supportedTaskTypes"],
     iconPath: raw.icon_path || null,
     isBuiltin: raw.is_builtin ?? false,
@@ -354,6 +360,11 @@ export async function fetchModels(providerId?: string, taskType?: string): Promi
 export async function fetchModel(id: string): Promise<Model> {
   const response = await apiClient.get<ModelResponse>(`/models/${id}`);
   return transformModel(response.data);
+}
+
+export async function validateModel(id: string): Promise<ModelValidationResponse> {
+  const response = await apiClient.post<ModelValidationResponse>(`/models/${id}/validate`);
+  return response.data;
 }
 
 /**

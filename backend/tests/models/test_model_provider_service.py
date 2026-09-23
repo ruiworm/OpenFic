@@ -3,12 +3,26 @@
 ModelProviderService Tests.
 """
 
+import json
+
 import pytest
 
 from app.core.encryption import EncryptionService
+from app.models.catalog import CatalogMatch
 from app.models.entities.model_provider import ModelProvider
 from app.models.registry import AdapterRegistry
 from app.models.services.model_provider_service import ModelProviderService
+
+
+_ANTHROPIC_COMPATIBLE_PROVIDER_TYPES = [
+    "freemodel",
+    "minimax",
+    "minimax-cn",
+    "minimax-coding-plan",
+    "minimax-cn-coding-plan",
+    "subconscious",
+    "thinkingmachines",
+]
 
 
 class _FakeAdapter:
@@ -89,6 +103,81 @@ async def test_get_available_models_uses_openai_compatible_adapter_for_catalog_p
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("provider_type", _ANTHROPIC_COMPATIBLE_PROVIDER_TYPES)
+async def test_get_available_models_uses_anthropic_compatible_adapter_for_anthropic_catalog_provider(
+    provider_type: str,
+    monkeypatch,
+):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    provider = ModelProvider(
+        name=provider_type,
+        url="https://gateway.example/v1",
+        api_key_encrypted=encryption_service.encrypt("test-key"),
+        provider_type=provider_type,
+    )
+    requested_provider_types: list[str] = []
+
+    def get_adapter(cls, requested_provider_type: str):
+        requested_provider_types.append(requested_provider_type)
+        return _FakeAdapter()
+
+    def is_supported(cls, requested_provider_type: str, task_type: str) -> bool:
+        requested_provider_types.append(requested_provider_type)
+        return task_type == "llm"
+
+    monkeypatch.setattr(AdapterRegistry, "get_adapter", classmethod(get_adapter))
+    monkeypatch.setattr(AdapterRegistry, "is_supported", classmethod(is_supported))
+
+    models = await service.get_available_models(provider, "llm")
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert requested_provider_types == ["anthropic-compatible", "anthropic-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_get_available_models_passes_custom_headers_to_custom_provider(
+    monkeypatch,
+):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    captured_headers: dict[str, str] = {}
+
+    class _HeaderRecordingAdapter(_FakeAdapter):
+        async def get_llm_models(
+            self, client, base_url: str, api_key: str, *, headers=None
+        ) -> list[dict[str, str]]:
+            captured_headers.update(headers or {})
+            return [{"id": "llm-1", "name": "LLM 1"}]
+
+    provider = ModelProvider(
+        name="Custom Provider",
+        url="https://gateway.example/v1",
+        api_key_encrypted=encryption_service.encrypt("test-key"),
+        custom_headers_encrypted=encryption_service.encrypt(
+            json.dumps({"X-Provider-Token": "custom-token"})
+        ),
+        provider_type="openai-compatible",
+    )
+
+    monkeypatch.setattr(
+        AdapterRegistry,
+        "get_adapter",
+        classmethod(lambda cls, provider_type: _HeaderRecordingAdapter()),
+    )
+    monkeypatch.setattr(
+        AdapterRegistry,
+        "is_supported",
+        classmethod(lambda cls, provider_type, task_type: True),
+    )
+
+    models = await service.get_available_models(provider, "llm")
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert captured_headers == {"X-Provider-Token": "custom-token"}
+
+
+@pytest.mark.asyncio
 async def test_validate_anthropic_compatible_connection_uses_its_adapter(monkeypatch):
     encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
     service = ModelProviderService(encryption_service)
@@ -108,6 +197,109 @@ async def test_validate_anthropic_compatible_connection_uses_its_adapter(monkeyp
 
     assert models == [{"id": "llm-1", "name": "LLM 1"}]
     assert requested_provider_types == ["anthropic-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_validate_openai_responses_compatible_connection_uses_its_adapter(
+    monkeypatch,
+):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    requested_provider_types: list[str] = []
+
+    def get_adapter(cls, provider_type: str):
+        requested_provider_types.append(provider_type)
+        return _FakeAdapter()
+
+    monkeypatch.setattr(AdapterRegistry, "get_adapter", classmethod(get_adapter))
+
+    models = await service.validate_and_get_models(
+        "openai-compatible-responses",
+        "https://gateway.example",
+        "test-key",
+    )
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert requested_provider_types == ["openai-compatible-responses"]
+
+
+@pytest.mark.asyncio
+async def test_validate_gemini_compatible_connection_uses_its_adapter(monkeypatch):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    requested_provider_types: list[str] = []
+
+    def get_adapter(cls, provider_type: str):
+        requested_provider_types.append(provider_type)
+        return _FakeAdapter()
+
+    monkeypatch.setattr(AdapterRegistry, "get_adapter", classmethod(get_adapter))
+
+    models = await service.validate_and_get_models(
+        "gemini-compatible",
+        "https://gateway.example",
+        "test-key",
+    )
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert requested_provider_types == ["gemini-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_get_available_models_uses_gemini_compatible_adapter(monkeypatch):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    provider = ModelProvider(
+        name="Gemini Compatible",
+        url="https://gateway.example",
+        api_key_encrypted=encryption_service.encrypt("test-key"),
+        provider_type="gemini-compatible",
+    )
+    requested_provider_types: list[str] = []
+
+    def get_adapter(cls, provider_type: str):
+        requested_provider_types.append(provider_type)
+        return _FakeAdapter()
+
+    def is_supported(cls, provider_type: str, task_type: str) -> bool:
+        requested_provider_types.append(provider_type)
+        return task_type == "llm"
+
+    monkeypatch.setattr(AdapterRegistry, "get_adapter", classmethod(get_adapter))
+    monkeypatch.setattr(AdapterRegistry, "is_supported", classmethod(is_supported))
+
+    models = await service.get_available_models(provider, "llm")
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert requested_provider_types == ["gemini-compatible", "gemini-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_compatible_supported_task_types_are_llm_only(monkeypatch):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+
+    class _CatalogService:
+        def get_supported_task_types(self, provider_type, catalog_match=None):
+            return ["embedding", "llm", "rerank"]
+
+    service = ModelProviderService(encryption_service, catalog_service=_CatalogService())
+    provider = ModelProvider(
+        name="Gemini Compatible",
+        url="https://gateway.example",
+        api_key_encrypted=encryption_service.encrypt("test-key"),
+        provider_type="gemini-compatible",
+    )
+
+    supported_task_types = await service.get_supported_task_types(
+        provider,
+        catalog_match=CatalogMatch(
+            catalog_provider_type="google-genai",
+            display_name="Google Generative AI",
+            matched_via="api",
+        ),
+    )
+
+    assert supported_task_types == ["llm"]
 
 
 @pytest.mark.asyncio
@@ -163,6 +355,38 @@ async def test_get_available_models_uses_anthropic_compatible_adapter(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_get_available_models_uses_openai_responses_compatible_adapter(monkeypatch):
+    encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
+    service = ModelProviderService(encryption_service)
+    provider = ModelProvider(
+        name="OpenAI Responses Compatible",
+        url="https://gateway.example",
+        api_key_encrypted=encryption_service.encrypt("test-key"),
+        provider_type="openai-compatible-responses",
+    )
+    requested_provider_types: list[str] = []
+
+    def get_adapter(cls, provider_type: str):
+        requested_provider_types.append(provider_type)
+        return _FakeAdapter()
+
+    def is_supported(cls, provider_type: str, task_type: str) -> bool:
+        requested_provider_types.append(provider_type)
+        return task_type == "llm"
+
+    monkeypatch.setattr(AdapterRegistry, "get_adapter", classmethod(get_adapter))
+    monkeypatch.setattr(AdapterRegistry, "is_supported", classmethod(is_supported))
+
+    models = await service.get_available_models(provider, "llm")
+
+    assert models == [{"id": "llm-1", "name": "LLM 1"}]
+    assert requested_provider_types == [
+        "openai-compatible-responses",
+        "openai-compatible-responses",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_create_provider_uses_catalog_api_for_directory_provider(monkeypatch):
     encryption_service = EncryptionService("id-hEPdEELwlgep9FQhcYQtX7ow188l7WHwy65qOZGQ=")
     service = ModelProviderService(encryption_service)
@@ -181,7 +405,9 @@ async def test_create_provider_uses_catalog_api_for_directory_provider(monkeypat
 
     captured: dict[str, str] = {}
 
-    async def create(*, session, name, url, api_key_encrypted, provider_type):
+    async def create(
+        *, session, name, url, api_key_encrypted, provider_type, custom_headers_encrypted
+    ):
         captured["url"] = url
         return ModelProvider(
             name=name,
@@ -222,7 +448,9 @@ async def test_create_provider_uses_supplied_url_when_directory_provider_lacks_a
 
     captured: dict[str, str] = {}
 
-    async def create(*, session, name, url, api_key_encrypted, provider_type):
+    async def create(
+        *, session, name, url, api_key_encrypted, provider_type, custom_headers_encrypted
+    ):
         captured["url"] = url
         return ModelProvider(
             name=name,

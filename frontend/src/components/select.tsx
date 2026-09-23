@@ -6,9 +6,10 @@
  */
 
 import { Box, Button, Flex, Popover, ScrollArea, Select, Text, TextField } from "@radix-ui/themes";
+import clsx from "clsx";
 import { ChevronDown, Search } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode, ComponentProps } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import type { CSSProperties, FocusEventHandler, ReactNode, ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 
 import "./select.css";
@@ -114,6 +115,13 @@ export interface LabeledSelectProps {
   hideTriggerChevron?: boolean;
   triggerClassName?: string;
   contentClassName?: string;
+  onContentFocusCapture?: FocusEventHandler<HTMLDivElement>;
+  onContentCloseAutoFocus?: ComponentProps<typeof Select.Content>["onCloseAutoFocus"];
+  keepFocusOnTouch?: boolean;
+  onTouchTrigger?: () => void;
+  preventContentFocus?: boolean;
+  variant?: "default" | "icon";
+  triggerAriaLabel?: string;
 }
 
 export interface SearchableSelectProps extends LabeledSelectProps {
@@ -141,19 +149,79 @@ export function LabeledSelect({
   triggerPrefix,
   triggerClassName,
   contentClassName,
+  onContentFocusCapture,
+  onContentCloseAutoFocus,
+  keepFocusOnTouch = false,
+  onTouchTrigger,
+  preventContentFocus = false,
+  variant = "default",
+  triggerAriaLabel,
 }: LabeledSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const triggerPointerTypeRef = useRef<string | null>(null);
+  const shouldKeepFocusOnTouch = keepFocusOnTouch && Boolean(onTouchTrigger);
   const selectedOption = options.find((opt) => opt.value === value);
   const triggerLabel = selectedOption?.label || placeholder;
+  const isIconVariant = variant === "icon";
+  const isTriggerLabelVisible = !isIconVariant && triggerLabelVisible;
+
+  const handleTriggerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      triggerPointerTypeRef.current = event.pointerType;
+      if (
+        !shouldKeepFocusOnTouch ||
+        (event.pointerType !== "touch" && event.pointerType !== "pen")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onTouchTrigger?.();
+    },
+    [onTouchTrigger, shouldKeepFocusOnTouch],
+  );
+
+  const handleTriggerClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      const pointerType = triggerPointerTypeRef.current;
+      triggerPointerTypeRef.current = null;
+      if (!shouldKeepFocusOnTouch || (pointerType !== "touch" && pointerType !== "pen")) {
+        return;
+      }
+
+      event.preventDefault();
+      onTouchTrigger?.();
+      setIsOpen((open) => !open);
+    },
+    [onTouchTrigger, shouldKeepFocusOnTouch],
+  );
+
+  const handleContentRef = useCallback(
+    (content: HTMLDivElement | null) => {
+      if (!content || !preventContentFocus) return;
+
+      content.setAttribute("inert", "");
+      window.setTimeout(() => content.removeAttribute("inert"), 0);
+    },
+    [preventContentFocus],
+  );
 
   const selectControl = (
     <Select.Root
       value={value || undefined}
       onValueChange={onChange}
       disabled={disabled}
+      open={shouldKeepFocusOnTouch ? isOpen : undefined}
+      onOpenChange={shouldKeepFocusOnTouch ? setIsOpen : undefined}
       size={size}
     >
       <Select.Trigger
-        className={triggerClassName}
+        className={clsx(
+          !isIconVariant && "select-trigger--background",
+          isIconVariant && "select-trigger--icon",
+          triggerClassName,
+        )}
         style={
           selectedOption?.labelColor
             ? ({
@@ -163,16 +231,19 @@ export function LabeledSelect({
             : triggerStyle
         }
         placeholder={placeholder}
+        aria-label={triggerAriaLabel ?? label ?? triggerLabel}
+        onPointerDown={handleTriggerPointerDown}
+        onClick={handleTriggerClick}
       >
         <Flex
           align="center"
-          justify={triggerLabelVisible ? undefined : "center"}
-          gap={triggerLabelVisible ? "2" : "0"}
-          className={triggerLabelVisible ? undefined : "select-trigger-content--icon-only"}
+          justify={isTriggerLabelVisible ? undefined : "center"}
+          gap={isTriggerLabelVisible ? "2" : "0"}
+          className={isTriggerLabelVisible ? undefined : "select-trigger-content--icon-only"}
         >
           {triggerPrefix}
           {selectedOption?.prefix}
-          {triggerLabelVisible && triggerLabel && (
+          {isTriggerLabelVisible && triggerLabel && (
             <Text
               size={size}
               color={selectedOption ? undefined : "gray"}
@@ -185,14 +256,29 @@ export function LabeledSelect({
         </Flex>
       </Select.Trigger>
       <Select.Content
+        ref={handleContentRef}
         position={contentPosition}
         className={contentClassName}
+        onFocusCapture={onContentFocusCapture}
+        onCloseAutoFocus={onContentCloseAutoFocus}
       >
         {options.map((option) => (
           <Fragment key={option.value}>
             <Select.Item
               value={option.value}
               disabled={option.disabled}
+              onPointerDown={(event) => {
+                if (
+                  shouldKeepFocusOnTouch &&
+                  !option.disabled &&
+                  (event.pointerType === "touch" || event.pointerType === "pen")
+                ) {
+                  event.preventDefault();
+                  onChange(option.value);
+                  onTouchTrigger?.();
+                  setIsOpen(false);
+                }
+              }}
             >
               <SelectOptionContent
                 option={option}
@@ -257,12 +343,17 @@ export function SimpleSelect({
   triggerPrefix,
   triggerClassName,
   contentClassName,
+  triggerLabelVisible = true,
+  variant = "default",
+  triggerAriaLabel,
 }: Omit<
   LabeledSelectProps,
   "label" | "labelSize" | "labelWeight" | "labelColor" | "layout" | "gap"
 >) {
   const selectedOption = options.find((opt) => opt.value === value);
   const triggerLabel = selectedOption?.label || placeholder;
+  const isIconVariant = variant === "icon";
+  const isTriggerLabelVisible = !isIconVariant && triggerLabelVisible;
 
   return (
     <Select.Root
@@ -272,7 +363,11 @@ export function SimpleSelect({
       size={size}
     >
       <Select.Trigger
-        className={triggerClassName}
+        className={clsx(
+          !isIconVariant && "select-trigger--background",
+          isIconVariant && "select-trigger--icon",
+          triggerClassName,
+        )}
         style={
           selectedOption?.labelColor
             ? ({
@@ -282,15 +377,19 @@ export function SimpleSelect({
             : triggerStyle
         }
         placeholder={placeholder}
+        aria-label={triggerAriaLabel ?? triggerLabel}
       >
         <Flex
           align="center"
-          gap="2"
-          className="select-trigger-content"
+          justify={isTriggerLabelVisible ? undefined : "center"}
+          gap={isTriggerLabelVisible ? "2" : "0"}
+          className={
+            isTriggerLabelVisible ? "select-trigger-content" : "select-trigger-content--icon-only"
+          }
         >
           {triggerPrefix}
           {selectedOption?.prefix}
-          {triggerLabel && (
+          {isTriggerLabelVisible && triggerLabel && (
             <Text
               size={size}
               color={selectedOption ? undefined : "gray"}
@@ -382,6 +481,7 @@ export function SearchableSelect({
           variant="surface"
           color="gray"
           disabled={disabled}
+          className="select-trigger--background"
           data-slot="searchable-select-trigger"
           data-state={open ? "open" : "closed"}
           style={{ width: "100%", justifyContent: "space-between", ...triggerStyle }}

@@ -7,6 +7,7 @@
 import axios from "axios";
 
 import { getConfiguredBackendBaseUrl, getRuntimeConfig } from "./runtime-config";
+import type { ThemeConfigResponse } from "./theme";
 
 export function getApiBaseUrl(): string {
   const backendBaseUrl = getRuntimeConfig()?.backendBaseUrl ?? getConfiguredBackendBaseUrl();
@@ -86,6 +87,10 @@ export interface AuthStatusResponse {
 export interface AuthPreferencesResponse {
   language: string;
   theme: string;
+  theme_preset?: string;
+  light_theme_preset?: string;
+  dark_theme_preset?: string;
+  theme_config?: ThemeConfigResponse;
   font_family: string;
   code_font_family: string;
   base_font_size: number;
@@ -131,7 +136,7 @@ import type {
   CharacterListResponse,
   CharacterUpdate,
 } from "./character.types";
-import type { AssistantCommandCandidate } from "./command.types";
+import type { AgentComposerItems, AssistantCommandCandidate } from "./command.types";
 import type { AssistantMentionCandidate } from "./mention.types";
 import type {
   Project,
@@ -841,6 +846,24 @@ export async function searchCommands(
     signal,
   });
   return ((response.data.items as Record<string, unknown>[]) ?? []).map(transformCommandCandidate);
+}
+
+function transformAgentComposerItems(raw: Record<string, unknown>): AgentComposerItems {
+  return {
+    skills: ((raw.skills as Record<string, unknown>[]) ?? []).map(transformCommandCandidate),
+    chapters: ((raw.chapters as Record<string, unknown>[]) ?? []).map(transformMentionCandidate),
+    notes: ((raw.notes as Record<string, unknown>[]) ?? []).map(transformMentionCandidate),
+    worldInfoEntries: ((raw.world_info_entries as Record<string, unknown>[]) ?? []).map(
+      transformMentionCandidate,
+    ),
+  };
+}
+
+export async function fetchAgentComposerItems(projectId: string): Promise<AgentComposerItems> {
+  const response = await apiClient.get<Record<string, unknown>>(
+    `/projects/${projectId}/agent-composer-items`,
+  );
+  return transformAgentComposerItems(response.data);
 }
 
 /**
@@ -2258,10 +2281,16 @@ import type {
   ActiveSubagentState,
   AgentCancelPendingMessageResponse,
   AgentCompactionResponse,
+  AgentChangeItem,
+  AgentChangeLine,
+  AgentChangeSection,
+  AgentChangeSummary,
+  AgentSessionChanges,
   AgentSessionCreateRequest,
   AgentSessionCreateResponse,
   AgentForkResponse,
-  AgentImageAttachment,
+  AgentAttachment,
+  AgentAttachmentError,
   AgentPendingMessage,
   AgentSendMessageRequest,
   AgentSendMessageResponse,
@@ -2305,8 +2334,148 @@ export async function fetchAgentSessionState(
   };
 }
 
+export async function fetchAgentSessionChanges(sessionId: string): Promise<AgentSessionChanges> {
+  const response = await apiClient.get(`/agent/sessions/${sessionId}/changes`);
+  return transformAgentSessionChanges(response.data, sessionId);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function transformAgentChangeLine(raw: unknown): AgentChangeLine | null {
+  if (!isRecord(raw)) return null;
+  const type = raw.type === "added" || raw.type === "removed" ? raw.type : "context";
+  return {
+    type,
+    beforeLineNumber: typeof raw.before_line_number === "number" ? raw.before_line_number : null,
+    afterLineNumber: typeof raw.after_line_number === "number" ? raw.after_line_number : null,
+    text: typeof raw.text === "string" ? raw.text : "",
+  };
+}
+
+function transformAgentChangeSection(raw: unknown): AgentChangeSection | null {
+  if (!isRecord(raw) || raw.type !== "content") return null;
+  const lines = Array.isArray(raw.lines)
+    ? raw.lines.flatMap((line) => {
+        const transformed = transformAgentChangeLine(line);
+        return transformed ? [transformed] : [];
+      })
+    : [];
+  return { type: raw.type, lines };
+}
+
+function transformAgentChangeItem(raw: unknown): AgentChangeItem | null {
+  if (!isRecord(raw)) return null;
+  const kind = raw.kind;
+  if (kind !== "chapter" && kind !== "note" && kind !== "world_entry" && kind !== "character") {
+    return null;
+  }
+  const source = raw.source === "subagent" || raw.source === "session" ? raw.source : "primary";
+  const sections = Array.isArray(raw.sections)
+    ? raw.sections.flatMap((section) => {
+        const transformed = transformAgentChangeSection(section);
+        return transformed ? [transformed] : [];
+      })
+    : [];
+  return {
+    key: String(raw.key ?? ""),
+    kind,
+    title: String(raw.title ?? kind),
+    titleBefore: typeof raw.title_before === "string" ? raw.title_before : undefined,
+    titleAfter: typeof raw.title_after === "string" ? raw.title_after : undefined,
+    path: Array.isArray(raw.path)
+      ? raw.path.filter(
+          (part): part is string => typeof part === "string" && part.trim().length > 0,
+        )
+      : [],
+    operation: String(raw.operation ?? "update"),
+    sections,
+    added: Number(raw.added ?? 0),
+    removed: Number(raw.removed ?? 0),
+    sourceMessageId: String(raw.source_message_id ?? ""),
+    source,
+    childRunId: typeof raw.child_run_id === "string" ? raw.child_run_id : undefined,
+    requestId: typeof raw.request_id === "string" ? raw.request_id : undefined,
+    agentKey: typeof raw.agent_key === "string" ? raw.agent_key : undefined,
+    agentNumber: typeof raw.agent_number === "string" ? raw.agent_number : undefined,
+    revisionId: typeof raw.revision_id === "string" ? raw.revision_id : undefined,
+  };
+}
+
+function transformAgentChangeSummary(raw: unknown): AgentChangeSummary {
+  if (!isRecord(raw)) return { itemCount: 0, added: 0, removed: 0, items: [] };
+  const items = Array.isArray(raw.items)
+    ? raw.items.flatMap((item) => {
+        const transformed = transformAgentChangeItem(item);
+        return transformed ? [transformed] : [];
+      })
+    : [];
+  return {
+    itemCount: Number(raw.item_count ?? items.length),
+    added: Number(raw.added ?? 0),
+    removed: Number(raw.removed ?? 0),
+    items,
+  };
+}
+
+function transformAgentSessionChanges(
+  raw: unknown,
+  fallbackSessionId: string,
+): AgentSessionChanges {
+  if (!isRecord(raw)) {
+    return {
+      sessionId: fallbackSessionId,
+      turns: [],
+      sessionChanges: transformAgentChangeSummary(null),
+    };
+  }
+  const turns = Array.isArray(raw.turns)
+    ? raw.turns.flatMap((turn) => {
+        if (!isRecord(turn)) return [];
+        const subagentRuns = Array.isArray(turn.subagent_runs)
+          ? turn.subagent_runs.flatMap((run) => {
+              if (!isRecord(run)) return [];
+              const childRunId = String(run.child_run_id ?? "");
+              const childThreadId = String(run.child_thread_id ?? "");
+              const agentKey = String(run.agent_key ?? "");
+              if (!childRunId || !childThreadId || !agentKey) return [];
+              return [
+                {
+                  childRunId,
+                  childThreadId,
+                  requestId: typeof run.request_id === "string" ? run.request_id : undefined,
+                  childUserMessageId:
+                    typeof run.child_user_message_id === "string"
+                      ? run.child_user_message_id
+                      : undefined,
+                  agentKey,
+                  agentNumber: typeof run.agent_number === "string" ? run.agent_number : undefined,
+                  changes: transformAgentChangeSummary(run.changes),
+                },
+              ];
+            })
+          : [];
+        const revisionId = String(turn.revision_id ?? "");
+        if (!revisionId) return [];
+        return [
+          {
+            revisionId,
+            userMessageId:
+              typeof turn.user_message_id === "string" ? turn.user_message_id : undefined,
+            userMessageSeq:
+              typeof turn.user_message_seq === "number" ? turn.user_message_seq : undefined,
+            changes: transformAgentChangeSummary(turn.changes),
+            subagentRuns,
+          },
+        ];
+      })
+    : [];
+  return {
+    sessionId: String(raw.session_id ?? fallbackSessionId),
+    turns,
+    sessionChanges: transformAgentChangeSummary(raw.session_changes),
+  };
 }
 
 function transformPendingAgentMessage(raw: unknown): AgentPendingMessage | null {
@@ -2405,7 +2574,8 @@ export async function sendAgentMessage(
   modelId?: string,
   reasoningEffort?: ReasoningEffort,
   agentKey?: string,
-  attachments?: AgentImageAttachment[],
+  attachments?: AgentAttachment[],
+  attachmentErrors?: AgentAttachmentError[],
 ): Promise<AgentSendMessageResponse> {
   const request: AgentSendMessageRequest = {
     message,
@@ -2413,6 +2583,17 @@ export async function sendAgentMessage(
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(agentKey ? { agent_key: agentKey } : {}),
     ...(attachments?.length ? { attachments: attachments.map((attachment) => attachment.id) } : {}),
+    ...(attachmentErrors?.length
+      ? {
+          attachment_errors: attachmentErrors.map((attachment) => ({
+            id: attachment.id,
+            file_name: attachment.fileName,
+            mime_type: attachment.mimeType,
+            size_bytes: attachment.sizeBytes,
+            error: attachment.error,
+          })),
+        }
+      : {}),
   };
   const response = await apiClient.post(`/agent/sessions/${sessionId}/message`, request);
   const data = response.data as Record<string, unknown>;
@@ -2426,12 +2607,14 @@ export async function sendAgentMessage(
   };
 }
 
-export async function uploadAgentImageAttachment(
+export async function uploadAgentAttachment(
   sessionId: string,
-  image: File,
-): Promise<AgentImageAttachment> {
+  file: File,
+  clientAttachmentId?: string,
+): Promise<AgentAttachment> {
   const formData = new FormData();
-  formData.append("image", image);
+  formData.append("file", file);
+  if (clientAttachmentId) formData.append("client_attachment_id", clientAttachmentId);
   const response = await apiClient.post(`/agent/sessions/${sessionId}/attachments`, formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
@@ -2441,10 +2624,12 @@ export async function uploadAgentImageAttachment(
     sessionId: String(raw.session_id ?? sessionId),
     storageName: String(raw.storage_name ?? ""),
     fileName: String(raw.file_name ?? ""),
-    mimeType: raw.mime_type as AgentImageAttachment["mimeType"],
+    mimeType: String(raw.mime_type ?? "application/octet-stream"),
     sizeBytes: Number(raw.size_bytes ?? 0),
-    width: Number(raw.width ?? 0),
-    height: Number(raw.height ?? 0),
+    contentLength: Number(raw.content_length ?? 0),
+    lineCount: Number(raw.line_count ?? 0),
+    width: typeof raw.width === "number" ? raw.width : null,
+    height: typeof raw.height === "number" ? raw.height : null,
     url: resolveBackendUrl(String(raw.url ?? "")) ?? "",
   };
 }
@@ -2520,10 +2705,12 @@ export async function rollbackAgentRevision(
               sessionId: String(attachment.session_id ?? sessionId),
               storageName: String(attachment.storage_name ?? ""),
               fileName: String(attachment.file_name ?? ""),
-              mimeType: attachment.mime_type as AgentImageAttachment["mimeType"],
+              mimeType: String(attachment.mime_type ?? "application/octet-stream"),
               sizeBytes: Number(attachment.size_bytes ?? 0),
-              width: Number(attachment.width ?? 0),
-              height: Number(attachment.height ?? 0),
+              contentLength: Number(attachment.content_length ?? 0),
+              lineCount: Number(attachment.line_count ?? 0),
+              width: typeof attachment.width === "number" ? attachment.width : null,
+              height: typeof attachment.height === "number" ? attachment.height : null,
               url: resolveBackendUrl(attachment.url) ?? "",
             },
           ];
@@ -2602,6 +2789,8 @@ import type {
   NoteCategoryUpdate,
   NoteItemMove,
   NoteMoveResult,
+  NoteImportPreview,
+  NoteImportResult,
 } from "./note.types";
 
 function transformNote(raw: Record<string, unknown>): Note {
@@ -2749,4 +2938,48 @@ export async function moveNoteItem(data: NoteItemMove): Promise<NoteMoveResult> 
     target_category_id: data.targetCategoryId,
   });
   return transformNoteMoveResult(response.data);
+}
+
+function transformNoteImportPreview(raw: Record<string, unknown>): NoteImportPreview {
+  return {
+    fileType: raw.file_type as "md" | "zip",
+    noteCount: raw.note_count as number,
+    categoryCount: raw.category_count as number,
+    ignoredFileCount: raw.ignored_file_count as number,
+  };
+}
+
+function transformNoteImportResult(raw: Record<string, unknown>): NoteImportResult {
+  return {
+    fileType: raw.file_type as "md" | "zip",
+    importedNoteCount: raw.imported_note_count as number,
+    importedCategoryCount: raw.imported_category_count as number,
+    ignoredFileCount: raw.ignored_file_count as number,
+  };
+}
+
+export async function previewNoteImport(projectId: string, file: File): Promise<NoteImportPreview> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.post(`/projects/${projectId}/notes/import/preview`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return transformNoteImportPreview(response.data);
+}
+
+export async function importNotes(projectId: string, file: File): Promise<NoteImportResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.post(`/projects/${projectId}/notes/import`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return transformNoteImportResult(response.data);
+}
+
+export function getNoteExportUrl(noteId: string): string {
+  return getApiUrl(`/notes/${encodeURIComponent(noteId)}/export`);
+}
+
+export function getNoteCategoryExportUrl(categoryId: string): string {
+  return getApiUrl(`/note-categories/${encodeURIComponent(categoryId)}/export`);
 }

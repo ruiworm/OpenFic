@@ -14,6 +14,13 @@ const EMBEDDING_DIMENSIONS_SUPPORTED_PROVIDER_TYPES = new Set<ProviderType>([
   "nvidia-ai-endpoints",
 ]);
 
+const CUSTOM_PROVIDER_TYPES = new Set([
+  "openai-compatible",
+  "openai-compatible-responses",
+  "anthropic-compatible",
+  "gemini-compatible",
+]);
+
 export function supportsEmbeddingDimensions(providerType: string): boolean {
   return EMBEDDING_DIMENSIONS_SUPPORTED_PROVIDER_TYPES.has(providerType);
 }
@@ -26,6 +33,10 @@ export function hasSelectableModelProvider(
   providers: Array<Pick<ModelProvider, "isBuiltin">>,
 ): boolean {
   return providers.some(isSelectableModelProvider);
+}
+
+export function isCustomProviderType(providerType: string): boolean {
+  return CUSTOM_PROVIDER_TYPES.has(providerType);
 }
 
 /**
@@ -46,7 +57,9 @@ export function getProviderDisplayName(providerType: string): string {
     "amazon-nova": "Amazon Nova",
     deepseek: "DeepSeek",
     "openai-compatible": "OpenAI Compatible",
+    "openai-compatible-responses": "OpenAI Compatible (Responses)",
     "anthropic-compatible": "Anthropic Compatible",
+    "gemini-compatible": "Gemini Compatible",
     builtin: "Builtin",
   };
 
@@ -60,7 +73,7 @@ export function getProviderUrl(
   providerType: string,
   catalogProviders?: ModelProviderCatalogProvider[],
 ): string | null {
-  if (providerType === "openai-compatible" || providerType === "anthropic-compatible") {
+  if (isCustomProviderType(providerType)) {
     return null;
   }
 
@@ -71,10 +84,7 @@ export function getProviderUrl(
 }
 
 export function resolveProviderCatalogType(provider: ModelProvider): string | null {
-  if (
-    provider.providerType === "openai-compatible" ||
-    provider.providerType === "anthropic-compatible"
-  ) {
+  if (isCustomProviderType(provider.providerType)) {
     return provider.catalogMatch?.catalogProviderType ?? null;
   }
 

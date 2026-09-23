@@ -5,7 +5,9 @@
  */
 
 import { apiClient } from "@/lib/api-client";
+import { normalizeThemeMode, normalizeThemePreset, transformThemeConfig } from "@/lib/theme";
 
+import { SYSTEM_LIGHT_MODEL_REFERENCE } from "./agent-definitions.types";
 import type {
   AgentToolMetadata,
   AuditDetailsStorage,
@@ -23,15 +25,33 @@ import {
  * 后端响应字段转换（snake_case -> camelCase）
  */
 export function transformSettings(raw: SettingsResponse): Settings {
+  const theme = normalizeThemeMode(raw.theme);
+  const appearance = theme === "dark" ? "dark" : "light";
+  const themePreset = normalizeThemePreset(raw.theme_preset, appearance);
+  const lightThemePreset = normalizeThemePreset(raw.light_theme_preset ?? themePreset, "light");
+  const darkThemePreset = normalizeThemePreset(raw.dark_theme_preset ?? themePreset, "dark");
+
   return {
     language: raw.language as Settings["language"],
-    theme: raw.theme as Settings["theme"],
+    theme,
+    themePreset: appearance === "dark" ? darkThemePreset : lightThemePreset,
+    lightThemePreset,
+    darkThemePreset,
+    themeConfig: transformThemeConfig(raw.theme_config),
     fontFamily: getSupportedFontFamily(raw.font_family),
     codeFontFamily: getSupportedCodeFontFamily(raw.code_font_family || DEFAULT_CODE_FONT_FAMILY),
     baseFontSize: raw.base_font_size ?? 14,
     editorFontSize: raw.editor_font_size ?? 16,
     defaultModel: raw.default_model || "",
     lightModel: raw.light_model || "",
+    summaryModel: raw.summary_model || SYSTEM_LIGHT_MODEL_REFERENCE,
+    summaryAutoGenerateChapter: raw.summary_auto_generate_chapter ?? true,
+    summaryAutoGenerateLongTerm: raw.summary_auto_generate_long_term ?? true,
+    summaryMinChapterWordCount: raw.summary_min_chapter_word_count ?? 500,
+    summaryBatchSize: raw.summary_batch_size ?? 10,
+    summaryLongTermInterval: raw.summary_long_term_interval ?? 10,
+    summaryChapterTargetLength: raw.summary_chapter_target_length ?? 200,
+    summaryLongTermTargetLength: raw.summary_long_term_target_length ?? 500,
     defaultEmbeddingModel: raw.default_embedding_model || "",
     indexMode: raw.index_mode ?? "off",
     indexEnabledProjects: raw.index_enabled_projects ?? [],
@@ -51,6 +71,7 @@ export function transformSettings(raw: SettingsResponse): Settings {
     editorAutoIndent: raw.editor_auto_indent ?? true,
     editorAutoConvertPunctuation: raw.editor_auto_convert_punctuation ?? false,
     editorAutoPairSymbols: raw.editor_auto_pair_symbols ?? false,
+    editorShowLineNumbers: raw.editor_show_line_numbers ?? false,
   };
 }
 

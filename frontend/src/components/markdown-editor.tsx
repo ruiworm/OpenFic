@@ -1,12 +1,14 @@
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
+import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { Editor } from "@tiptap/react";
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
 
 import { ContextMenu } from "./context-menu";
 import { EditorToolbar, type EditorToolbarExtraAction } from "./editor-toolbar";
+import { ExternalLinkSafetyDialog } from "./external-link-safety-dialog";
 import { createMarkdownEditorExtensions } from "./markdown-editor-config";
 import { TitleInput } from "./title-input";
 
@@ -34,6 +36,36 @@ export interface MarkdownEditorProps {
   onScrollPositionChange?: (scrollTop: number) => void;
 }
 
+interface HoveredEditorLink {
+  href: string;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+function EditorLinkTooltip({ link }: { link: HoveredEditorLink | null }) {
+  if (!link) return null;
+
+  return (
+    <Tooltip
+      content={link.href}
+      open
+    >
+      <span
+        aria-hidden="true"
+        className="editor-link-tooltip-anchor"
+        style={{
+          top: link.top,
+          left: link.left,
+          width: link.width,
+          height: link.height,
+        }}
+      />
+    </Tooltip>
+  );
+}
+
 export function MarkdownEditor({
   title,
   onTitleChange,
@@ -59,28 +91,100 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const { t } = useTranslation();
   const contentSyncedRef = useRef(content);
+  const initialContentRef = useRef(content);
+  const onSaveRef = useRef(onSave);
+  const onLockedActionRef = useRef(onLockedAction);
+  const isLockedRef = useRef(isLocked);
   const editorContentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const initialScrollTopRef = useRef(scrollTop);
   const latestScrollTopRef = useRef(scrollTop);
   const scrollPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingExternalLink, setPendingExternalLink] = useState<string | null>(null);
+  const [hoveredEditorLink, setHoveredEditorLink] = useState<HoveredEditorLink | null>(null);
+
+  onSaveRef.current = onSave;
+  onLockedActionRef.current = onLockedAction;
+  isLockedRef.current = isLocked;
+
+  const handleEditorLinkClick = useCallback(
+    (_view: EditorView, _pos: number, event: MouseEvent) => {
+      const target = event.target;
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      const href = link?.getAttribute("href");
+      if (!href) return false;
+
+      event.preventDefault();
+      setHoveredEditorLink(null);
+      setPendingExternalLink(href);
+      return true;
+    },
+    [],
+  );
+
+  const handleEditorLinkMouseOver = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    const link = target instanceof Element ? target.closest("a[href]") : null;
+    if (!link || !editorContentRef.current?.contains(link)) return;
+
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && link.contains(relatedTarget)) return;
+
+    const rect = link.getBoundingClientRect();
+    const href = link.getAttribute("href");
+    if (!href) return;
+
+    setHoveredEditorLink({
+      href,
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, []);
+
+  const handleEditorLinkMouseOut = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    const link = target instanceof Element ? target.closest("a[href]") : null;
+    if (!link || !editorContentRef.current?.contains(link)) return;
+
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && link.contains(relatedTarget)) return;
+    setHoveredEditorLink(null);
+  }, []);
+
+  const handleConfirmExternalLink = useCallback(() => {
+    if (!pendingExternalLink) return;
+    window.open(pendingExternalLink, "_blank", "noopener,noreferrer");
+  }, [pendingExternalLink]);
+
+  const editorExtensions = useMemo(
+    () =>
+      createMarkdownEditorExtensions({
+        placeholder: placeholder ?? "",
+        shortcuts: {
+          onSave: () => {
+            if (isLockedRef.current) {
+              onLockedActionRef.current?.();
+              return;
+            }
+            onSaveRef.current();
+          },
+        },
+      }),
+    [placeholder],
+  );
+  const editorProps = useMemo(
+    () => ({ handleClick: handleEditorLinkClick }),
+    [handleEditorLinkClick],
+  );
 
   const editor = useEditor({
-    extensions: createMarkdownEditorExtensions({
-      placeholder: placeholder ?? "",
-      shortcuts: {
-        onSave: () => {
-          if (isLocked) {
-            onLockedAction?.();
-            return;
-          }
-          onSave();
-        },
-      },
-    }),
-    content,
+    extensions: editorExtensions,
+    content: initialContentRef.current,
     contentType: "markdown",
     editable: !isLocked,
+    editorProps,
   });
   const editorRef = useRef(editor);
 
@@ -116,18 +220,9 @@ export function MarkdownEditor({
     if (!currentEditor) return;
     if (content === contentSyncedRef.current) return;
 
-    const { from, to } = currentEditor.state.selection;
-    const wasFocused = currentEditor.isFocused;
     contentSyncedRef.current = content;
     currentEditor.commands.setContent(content, { contentType: "markdown", emitUpdate: false });
-    if (!wasFocused) return;
-
-    const maxPosition = Math.max(1, currentEditor.state.doc.content.size);
-    currentEditor.commands.setTextSelection({
-      from: Math.min(from, maxPosition),
-      to: Math.min(to, maxPosition),
-    });
-  }, [content]);
+  }, [content, editor]);
 
   const flushScrollPosition = useCallback(() => {
     if (scrollPositionTimerRef.current) {
@@ -227,6 +322,7 @@ export function MarkdownEditor({
         onLockedAction={onLockedAction}
         extraActions={extraToolbarActions}
         toolbarPrefix={toolbarPrefix}
+        showMarkdownTools
       />
 
       <Box
@@ -239,8 +335,8 @@ export function MarkdownEditor({
           style={{
             maxWidth,
             margin: "0 auto",
-            padding: "0 24px",
           }}
+          className="markdown-editor-content"
         >
           <TitleInput
             value={title}
@@ -254,6 +350,8 @@ export function MarkdownEditor({
           <Box
             py="5"
             ref={editorContentRef}
+            onMouseOver={handleEditorLinkMouseOver}
+            onMouseOut={handleEditorLinkMouseOut}
           >
             <EditorContent
               editor={editor}
@@ -270,6 +368,15 @@ export function MarkdownEditor({
         />
       )}
 
+      <ExternalLinkSafetyDialog
+        isOpen={pendingExternalLink !== null}
+        url={pendingExternalLink ?? ""}
+        onClose={() => setPendingExternalLink(null)}
+        onConfirm={handleConfirmExternalLink}
+      />
+
+      <EditorLinkTooltip link={hoveredEditorLink} />
+
       <Flex
         px="6"
         py="3"
@@ -277,7 +384,7 @@ export function MarkdownEditor({
         align="center"
         style={{
           borderTop: "1px solid var(--gray-a4)",
-          background: "var(--gray-a2)",
+          background: "var(--theme-editor-bar-background)",
         }}
       >
         <Text

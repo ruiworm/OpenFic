@@ -31,6 +31,7 @@ from app.agent_runtime.streaming.replay_buffer import get_agent_event_replay_buf
 from app.api.routers.agent_runtime import (
     _SESSION_RUNNERS,
     _build_model_config,
+    _checkpoint_has_pending_interrupt,
     _launch_task,
 )
 from app.settings import settings
@@ -156,6 +157,47 @@ class TestAgentAPI:
         assert attachment["url"].startswith("/agent-attachments/")
         assert settings.agent_attachments_dir.joinpath(attachment["storage_name"]).is_file()
 
+    async def test_upload_agent_text_attachment_extracts_and_persists_content(
+        self,
+        client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        target = await _seed_agent_target(client)
+        session_response = await client.post(
+            "/api/v1/agent/sessions",
+            json={"project_id": target["project_id"], "model_id": target["model_id"]},
+        )
+        session_id = session_response.json()["session_id"]
+        monkeypatch.setattr(settings, "agent_attachments_dir", tmp_path / "agent-attachments")
+
+        attachment_events = AsyncMock()
+        with patch("app.api.routers.agent_runtime.emit", new=attachment_events):
+            response = await client.post(
+                f"/api/v1/agent/sessions/{session_id}/attachments",
+                data={"client_attachment_id": "client-file-1"},
+                files={"file": ("notes.md", b"hello\nworld", "text/markdown")},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        attachment = response.json()
+        assert attachment["mime_type"] == "text/markdown"
+        assert attachment["content_length"] == len("hello\nworld")
+        assert attachment["line_count"] == 2
+        assert attachment["width"] is None
+        assert attachment["height"] is None
+        assert settings.agent_attachments_dir.joinpath(attachment["storage_name"]).is_file()
+        assert [call.args[0] for call in attachment_events.await_args_list] == [
+            "agent:attachment_status",
+            "agent:attachment_processing",
+            "agent:attachment_processing",
+            "agent:attachment_status",
+        ]
+        assert attachment_events.await_args_list[0].args[1]["status"] == "uploading"
+        assert attachment_events.await_args_list[1].args[1]["status"] == "started"
+        assert attachment_events.await_args_list[2].args[1]["status"] == "completed"
+        assert attachment_events.await_args_list[3].args[1]["status"] == "completed"
+
     async def test_send_agent_message_passes_session_attachment_metadata_to_runner(
         self,
         client: AsyncClient,
@@ -193,9 +235,62 @@ class TestAgentAPI:
                     "file_name": "reference.png",
                     "mime_type": "image/png",
                     "size_bytes": attachment["size_bytes"],
+                    "content_length": 0,
+                    "line_count": 0,
                     "width": 2,
                     "height": 3,
                     "url": attachment["url"],
+                }
+            ],
+        )
+
+    async def test_send_agent_message_passes_failed_attachment_errors_to_runner(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        target = await _seed_agent_target(client)
+        session_response = await client.post(
+            "/api/v1/agent/sessions",
+            json={"project_id": target["project_id"], "model_id": target["model_id"]},
+        )
+        session_id = session_response.json()["session_id"]
+        runner = _SESSION_RUNNERS[session_id]
+        runner.run = MagicMock(return_value=object())
+
+        with patch("app.api.routers.agent_runtime._launch_task", AsyncMock()):
+            response = await client.post(
+                f"/api/v1/agent/sessions/{session_id}/message",
+                json={
+                    "message": "请说明附件问题",
+                    "attachment_errors": [
+                        {
+                            "id": "failed-attachment",
+                            "file_name": "book.epub",
+                            "mime_type": "application/epub+zip",
+                            "size_bytes": 128,
+                            "error": "服务器未安装 Pandoc",
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        runner.run.assert_called_once_with(
+            user_request="请说明附件问题",
+            attachments=[
+                {
+                    "id": "failed-attachment",
+                    "session_id": session_id,
+                    "storage_name": "",
+                    "file_name": "book.epub",
+                    "mime_type": "application/epub+zip",
+                    "size_bytes": 128,
+                    "content_length": 0,
+                    "line_count": 0,
+                    "width": None,
+                    "height": None,
+                    "url": "",
+                    "error": "服务器未安装 Pandoc",
                 }
             ],
         )
@@ -263,6 +358,10 @@ class TestAgentAPI:
             },
             {
                 "key": "dispatch_subagent",
+                "is_readonly": True,
+            },
+            {
+                "key": "list_subagents",
                 "is_readonly": True,
             },
             {
@@ -411,6 +510,14 @@ class TestAgentAPI:
             },
             {
                 "key": "reference_skill",
+                "is_readonly": True,
+            },
+            {
+                "key": "web_search",
+                "is_readonly": True,
+            },
+            {
+                "key": "web_fetch",
                 "is_readonly": True,
             },
         ]
@@ -1487,6 +1594,76 @@ class TestAgentAPI:
         assert revision.status == "active"
         launch_task.assert_awaited_once()
         launch_task.await_args.kwargs["coro"].close()
+
+    async def test_resume_recovers_failed_revision_with_pending_checkpoint(
+        self,
+        client: AsyncClient,
+        session,
+    ) -> None:
+        target = await _seed_agent_target(client)
+        session_response = await client.post(
+            "/api/v1/agent/sessions",
+            json={"project_id": target["project_id"], "model_id": target["model_id"]},
+        )
+        payload = session_response.json()
+        session_id = payload["session_id"]
+        task = await task_service.get_task(session, payload["task_id"])
+        revision = Revision(
+            project_id=task.project_id,
+            task_id=task.id,
+            message="checkpoint write failed",
+            agent_session_id=session_id,
+            revision_type="agent",
+            status="failed",
+            is_checkpoint=True,
+            project_snapshot_title="Recoverable failure",
+            project_snapshot_word_count=0,
+            project_snapshot_chapter_count=0,
+        )
+        session.add(revision)
+        await session.flush()
+        task.current_revision_id = revision.id
+        session.add(task)
+        await session.commit()
+
+        checkpoint = SimpleNamespace(
+            checkpoint={"channel_values": {"current_revision_id": revision.id}},
+            pending_writes=[(None, "__interrupt__", [object()])]
+        )
+        with (
+            patch(
+                "app.api.routers.agent_runtime.get_checkpointer",
+                new=AsyncMock(return_value=SimpleNamespace(
+                    aget_tuple=AsyncMock(return_value=checkpoint)
+                )),
+            ),
+            patch("app.api.routers.agent_runtime._launch_task", new=AsyncMock()) as launch_task,
+        ):
+            response = await client.post(
+                f"/api/v1/agent/sessions/{session_id}/tool-approval",
+                json={"approval_id": "recoverable-approval", "approved": True},
+            )
+
+        await session.refresh(revision)
+        assert response.status_code == status.HTTP_200_OK
+        assert revision.status == "active"
+        launch_task.assert_awaited_once()
+        launch_task.await_args.kwargs["coro"].close()
+
+    async def test_failed_revision_recovery_requires_matching_checkpoint_revision(self) -> None:
+        checkpoint = SimpleNamespace(
+            checkpoint={"channel_values": {"current_revision_id": "revision-a"}},
+            pending_writes=[(None, "__interrupt__", [object()])],
+        )
+        with patch(
+            "app.api.routers.agent_runtime.get_checkpointer",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    aget_tuple=AsyncMock(return_value=checkpoint),
+                )
+            ),
+        ):
+            assert not await _checkpoint_has_pending_interrupt("session-a", "revision-b")
 
     async def test_resume_claim_holds_session_lock_before_new_message_can_start(
         self,
@@ -3661,6 +3838,43 @@ class TestAgentAPI:
         assert response.json()["success"] is True
         await asyncio.sleep(0.05)
         mock_resume.assert_awaited_once_with("batch-1", responses)
+
+    async def test_submit_interrupt_batch_accepts_maximum_tool_batch(
+        self, client: AsyncClient
+    ) -> None:
+        target = await _seed_agent_target(client)
+        session_response = await client.post(
+            "/api/v1/agent/sessions",
+            json={
+                "project_id": target["project_id"],
+                "model_id": target["model_id"],
+                "max_iterations": 5,
+            },
+        )
+        session_id = session_response.json()["session_id"]
+        responses = [
+            {
+                "interrupt_id": f"approval-{index}",
+                "action_type": "tool_approval",
+                "approval_id": f"approval-{index}",
+                "approved": True,
+            }
+            for index in range(20)
+        ]
+
+        with patch(
+            "app.api.routers.agent_runtime.SessionRunner.resume_interrupt_batch",
+            new=AsyncMock(return_value=None),
+        ) as mock_resume:
+            response = await client.post(
+                f"/api/v1/agent/sessions/{session_id}/interrupt-resume",
+                json={"batch_id": "batch-maximum", "responses": responses},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+        await asyncio.sleep(0.05)
+        mock_resume.assert_awaited_once_with("batch-maximum", responses)
 
     async def test_rollback_session_uses_revision_id_and_restores_data(
         self,

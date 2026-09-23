@@ -2,8 +2,19 @@ import tiktoken.load
 import tiktoken.registry
 import pytest
 
-from app.agent_runtime.model_config import to_client_model_config
+from app.agent_runtime.model_config import to_client_model_config, without_api_key
 from app.models.clients.model_factory import create_chat_model, ModelConfig
+
+
+_ANTHROPIC_COMPATIBLE_PROVIDER_TYPES = [
+    "freemodel",
+    "minimax",
+    "minimax-cn",
+    "minimax-coding-plan",
+    "minimax-cn-coding-plan",
+    "subconscious",
+    "thinkingmachines",
+]
 
 
 def test_to_client_model_config_excludes_internal_model_record_id():
@@ -20,6 +31,17 @@ def test_to_client_model_config_excludes_internal_model_record_id():
     model = create_chat_model(ModelConfig(**config))
 
     assert model.model_name == "gpt-4o"
+
+
+def test_without_api_key_removes_custom_headers_from_persisted_config():
+    persisted = without_api_key(
+        {
+            "api_key": "sk-test",
+            "custom_headers": {"X-Provider-Token": "custom-token"},
+        }
+    )
+
+    assert persisted == {}
 
 
 def test_create_chat_model_openai_returns_chat_openai():
@@ -70,6 +92,70 @@ def test_create_chat_model_anthropic_compatible_uses_anthropic_client_with_custo
     assert model.anthropic_api_url == "https://gateway.example/v1"
     assert model.effort == "high"
     assert model.max_retries == 0
+
+
+@pytest.mark.parametrize("provider_type", _ANTHROPIC_COMPATIBLE_PROVIDER_TYPES)
+def test_create_chat_model_uses_anthropic_client_for_anthropic_catalog_provider(
+    provider_type: str,
+):
+    model = create_chat_model(
+        ModelConfig(
+            provider_type=provider_type,
+            base_url="https://gateway.example/v1",
+            api_key="test-key",
+            model_id="custom-model",
+        )
+    )
+
+    from langchain_anthropic import ChatAnthropic
+
+    assert isinstance(model, ChatAnthropic)
+
+
+def test_create_chat_model_gemini_compatible_uses_custom_native_client():
+    config = ModelConfig(
+        provider_type="gemini-compatible",
+        base_url="https://gateway.example/gemini",
+        api_key="test-key",
+        model_id="gemini-custom",
+        custom_headers={"X-Provider-Token": "custom-token"},
+        reasoning_effort="max",
+    )
+
+    model = create_chat_model(config)
+
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    assert isinstance(model, ChatGoogleGenerativeAI)
+    assert model.base_url == {"api_endpoint": "https://gateway.example/gemini"}
+    assert model.api_version == "v1beta"
+    assert model.additional_headers == {"X-Provider-Token": "custom-token"}
+    assert model.thinking_level == "high"
+    assert model.max_retries == 0
+
+
+def test_create_chat_model_custom_providers_send_custom_headers():
+    openai_model = create_chat_model(
+        ModelConfig(
+            provider_type="openai-compatible",
+            base_url="https://gateway.example/v1",
+            api_key="test-key",
+            model_id="custom-model",
+            custom_headers={"X-Provider-Token": "custom-token"},
+        )
+    )
+    anthropic_model = create_chat_model(
+        ModelConfig(
+            provider_type="anthropic-compatible",
+            base_url="https://gateway.example/v1",
+            api_key="test-key",
+            model_id="custom-claude",
+            custom_headers={"X-Provider-Token": "custom-token"},
+        )
+    )
+
+    assert openai_model.default_headers["X-Provider-Token"] == "custom-token"
+    assert anthropic_model.default_headers["X-Provider-Token"] == "custom-token"
 
 
 def test_create_chat_model_with_temperature():
@@ -491,6 +577,22 @@ def test_create_chat_model_openai_compatible_enables_stream_usage_for_custom_bas
 
     assert isinstance(model, ChatOpenAI)
     assert model.stream_usage is True
+
+
+def test_create_chat_model_openai_responses_compatible_uses_responses_api():
+    config = ModelConfig(
+        provider_type="openai-compatible-responses",
+        base_url="https://gateway.example/v1",
+        api_key="sk-test",
+        model_id="responses-model",
+    )
+    model = create_chat_model(config)
+
+    from langchain_openai import ChatOpenAI
+
+    assert isinstance(model, ChatOpenAI)
+    assert model.use_responses_api is True
+    assert str(model.root_client.base_url) == "https://gateway.example/v1/"
 
 
 def test_create_chat_model_deepseek_enables_stream_usage():

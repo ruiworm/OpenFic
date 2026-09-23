@@ -1,17 +1,17 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, StrictMode, Suspense, useState, useEffect } from "react";
+import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Routes, Route } from "react-router";
 
 import App from "./App.tsx";
-import { AppCrashFallback, GlobalLoading } from "./components";
+import { AppCrashFallback, GlobalLoading, toast } from "./components";
 import { Toaster } from "./components/toaster";
 import { AppLayout } from "./features/app-shell";
 import { AuthPage } from "./features/auth";
 import { CharactersPage } from "./features/characters";
 import { PromptChainsPage } from "./features/prompt-chains";
-import { fetchSettings } from "./features/settings/lib/settings-api";
+import { fetchSettings, updateSettings } from "./features/settings/lib/settings-api";
 import type { Settings } from "./features/settings/lib/settings.types";
 import { WorldInfoPage } from "./features/world-info";
 import { WritingPage } from "./features/writing";
@@ -30,6 +30,23 @@ import { getOrCreateRoot } from "./lib/get-or-create-root";
 import { captureException, initErrorTelemetry } from "./lib/posthog";
 import { loadRuntimeConfig } from "./lib/runtime-config";
 import { connectSocket } from "./lib/socket-client";
+import {
+  applyThemePalette,
+  DEFAULT_THEME_CONFIG,
+  DEFAULT_THEME_PRESET_ID,
+  normalizeThemeMode,
+  normalizeThemePreset,
+  observeThemeRoots,
+  resolveThemeAppearance,
+  resolveThemePalette,
+  resolveThemeVariables,
+  transformThemeConfig,
+  type ThemeConfig,
+  type ThemeAppearance,
+  type ThemeMode,
+  type ThemePresetId,
+  type ThemeSettings,
+} from "./lib/theme";
 import { preloadTiktokenEncoding } from "./lib/tiktoken-utils";
 
 import "streamdown/styles.css";
@@ -62,6 +79,13 @@ const queryClient = new QueryClient({
 
 const FRONTEND_VERSION = __OPENFIC_FRONTEND_VERSION__;
 const INITIALIZATION_TIMEOUT_MS = 30_000;
+const THEME_SYNC_DEBOUNCE_MS = 400;
+const SYSTEM_THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
+const THEME_MODE_CYCLE: readonly ThemeMode[] = ["system", "light", "dark"];
+
+function getSystemThemeAppearance(): ThemeAppearance {
+  return window.matchMedia(SYSTEM_THEME_MEDIA_QUERY).matches ? "dark" : "light";
+}
 
 type InitializationStage = "preferences" | "auth" | "health" | "settings" | "tiktoken" | "socket";
 
@@ -157,12 +181,18 @@ const DashboardPage = lazy(() =>
 function AppContent({
   appearance,
   version,
-  setAppearance,
+  themeMode,
+  setThemeMode,
+  setThemeSettings,
+  previewThemeSettings,
   toggleTheme,
 }: {
   appearance: "light" | "dark";
   version: string;
-  setAppearance: (appearance: "light" | "dark") => void;
+  themeMode: ThemeMode;
+  setThemeMode: (themeMode: ThemeMode) => void;
+  setThemeSettings: (settings: ThemeSettings) => void;
+  previewThemeSettings: (settings: ThemeSettings) => void;
   toggleTheme: () => void;
 }) {
   return (
@@ -173,7 +203,10 @@ function AppContent({
             <AppLayout
               appearance={appearance}
               version={version}
-              onAppearanceChange={setAppearance}
+              themeMode={themeMode}
+              onThemeModeChange={setThemeMode}
+              onThemeSettingsChange={setThemeSettings}
+              onThemePreviewChange={previewThemeSettings}
               onToggleTheme={toggleTheme}
             />
           }
@@ -213,15 +246,141 @@ function AppContent({
 }
 
 function Root() {
-  const [appearance, setAppearance] = useState<"light" | "dark">("light");
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [appearance, setAppearance] = useState<ThemeAppearance>(getSystemThemeAppearance);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [lightThemePreset, setLightThemePreset] = useState<ThemePresetId>(DEFAULT_THEME_PRESET_ID);
+  const [darkThemePreset, setDarkThemePreset] = useState<ThemePresetId>(DEFAULT_THEME_PRESET_ID);
+  const [themeConfig, setThemeConfig] = useState<ThemeConfig>(DEFAULT_THEME_CONFIG);
   const [isReady, setIsReady] = useState(false);
   const [requiresAuthentication, setRequiresAuthentication] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latestThemeModeRef = useRef<ThemeMode>("light");
+  const latestSystemAppearanceRef = useRef<ThemeAppearance>(getSystemThemeAppearance());
+  const hasLoadedPreferencesRef = useRef(false);
+  const themeSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const themePreviewFrameRef = useRef<number | null>(null);
 
-  const toggleTheme = () => {
-    setAppearance((prev) => (prev === "light" ? "dark" : "light"));
-  };
+  const cancelThemePreview = useCallback(() => {
+    if (themePreviewFrameRef.current === null) return;
+    window.cancelAnimationFrame(themePreviewFrameRef.current);
+    themePreviewFrameRef.current = null;
+  }, []);
+
+  const applyThemeMode = useCallback(
+    (next: ThemeMode, resolvedAppearance?: ThemeAppearance) => {
+      cancelThemePreview();
+      const nextAppearance =
+        resolvedAppearance ?? resolveThemeAppearance(next, latestSystemAppearanceRef.current);
+      latestThemeModeRef.current = next;
+      setThemeMode(next);
+      setAppearance(nextAppearance);
+    },
+    [cancelThemePreview],
+  );
+
+  const applyThemeSettings = useCallback(
+    (next: {
+      theme: string;
+      themePreset?: string;
+      lightThemePreset?: string;
+      darkThemePreset?: string;
+      themeConfig?: ThemeConfig;
+    }) => {
+      cancelThemePreview();
+      const nextThemeMode = normalizeThemeMode(next.theme);
+      const nextAppearance = resolveThemeAppearance(
+        nextThemeMode,
+        latestSystemAppearanceRef.current,
+      );
+      const legacyPreset = normalizeThemePreset(next.themePreset, nextAppearance);
+      latestThemeModeRef.current = nextThemeMode;
+      hasLoadedPreferencesRef.current = true;
+      setThemeMode(nextThemeMode);
+      setAppearance(nextAppearance);
+      setLightThemePreset(normalizeThemePreset(next.lightThemePreset ?? legacyPreset, "light"));
+      setDarkThemePreset(normalizeThemePreset(next.darkThemePreset ?? legacyPreset, "dark"));
+      setThemeConfig(next.themeConfig ?? DEFAULT_THEME_CONFIG);
+    },
+    [cancelThemePreview],
+  );
+
+  const previewThemeSettings = useCallback(
+    (next: ThemeSettings) => {
+      cancelThemePreview();
+      const nextThemeMode = normalizeThemeMode(next.theme);
+      const nextAppearance = resolveThemeAppearance(
+        nextThemeMode,
+        latestSystemAppearanceRef.current,
+      );
+      const activeThemePreset =
+        nextAppearance === "dark" ? next.darkThemePreset : next.lightThemePreset;
+      const palette = resolveThemePalette(activeThemePreset, next.themeConfig, nextAppearance);
+      const themeVariables = resolveThemeVariables(palette, nextAppearance, activeThemePreset);
+
+      publishDesktopAppearance({
+        appearance: nextAppearance,
+        themeVariables,
+        persist: false,
+      });
+
+      themePreviewFrameRef.current = window.requestAnimationFrame(() => {
+        themePreviewFrameRef.current = null;
+        applyThemePalette(palette, nextAppearance, activeThemePreset);
+      });
+    },
+    [cancelThemePreview],
+  );
+
+  const persistThemeMode = useCallback(async () => {
+    try {
+      const savedSettings = await updateSettings({ theme: latestThemeModeRef.current });
+      queryClient.setQueryData<Settings>(["settings"], savedSettings);
+      toast.success(i18n.t("settings.saved"));
+    } catch (error) {
+      // 持久化失败只影响下次启动,不回滚当前外观;之后任意设置保存会自动带上最新主题修正。
+      console.warn("Failed to persist theme preference:", error);
+    }
+  }, []);
+
+  const scheduleThemeModeSync = useCallback(() => {
+    if (themeSyncTimerRef.current) clearTimeout(themeSyncTimerRef.current);
+    themeSyncTimerRef.current = setTimeout(() => {
+      themeSyncTimerRef.current = null;
+      void persistThemeMode();
+    }, THEME_SYNC_DEBOUNCE_MS);
+  }, [persistThemeMode]);
+
+  const toggleTheme = useCallback(() => {
+    const currentIndex = THEME_MODE_CYCLE.indexOf(latestThemeModeRef.current);
+    const nextMode = THEME_MODE_CYCLE[(currentIndex + 1) % THEME_MODE_CYCLE.length];
+    applyThemeMode(nextMode);
+    scheduleThemeModeSync();
+  }, [applyThemeMode, scheduleThemeModeSync]);
+
+  useEffect(
+    () => () => {
+      cancelThemePreview();
+      if (themeSyncTimerRef.current) clearTimeout(themeSyncTimerRef.current);
+    },
+    [cancelThemePreview],
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(SYSTEM_THEME_MEDIA_QUERY);
+    const handleSystemThemeChange = (event: MediaQueryListEvent) => {
+      const nextSystemAppearance: ThemeAppearance = event.matches ? "dark" : "light";
+      latestSystemAppearanceRef.current = nextSystemAppearance;
+      if (latestThemeModeRef.current === "system") {
+        applyThemeMode("system", nextSystemAppearance);
+      }
+    };
+
+    latestSystemAppearanceRef.current = mediaQuery.matches ? "dark" : "light";
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
+  }, [applyThemeMode]);
+
+  useEffect(() => observeThemeRoots(), []);
 
   useEffect(() => {
     let mounted = true;
@@ -246,7 +405,15 @@ function Root() {
         if (preferences.language === "zh-CN" || preferences.language === "en") {
           await i18n.changeLanguage(preferences.language);
         }
-        if (mounted) setAppearance(preferences.theme === "dark" ? "dark" : "light");
+        if (mounted) {
+          applyThemeSettings({
+            theme: preferences.theme,
+            themePreset: preferences.theme_preset,
+            lightThemePreset: preferences.light_theme_preset,
+            darkThemePreset: preferences.dark_theme_preset,
+            themeConfig: transformThemeConfig(preferences.theme_config),
+          });
+        }
 
         if (authStatus.enabled && !authStatus.authenticated) {
           if (mounted) {
@@ -285,8 +452,7 @@ function Root() {
 
         if (mounted) {
           setRequiresAuthentication(false);
-          setSettings(settings);
-          setAppearance(settings.theme);
+          applyThemeSettings(settings);
           setIsReady(true);
         }
       } catch (initializationError) {
@@ -308,15 +474,20 @@ function Root() {
       mounted = false;
       clearTimeout(timer);
     };
-  }, []);
+  }, [applyThemeSettings]);
 
   useEffect(() => {
+    const activeThemePreset = appearance === "dark" ? darkThemePreset : lightThemePreset;
+    const palette = resolveThemePalette(activeThemePreset, themeConfig, appearance);
+    const themeVariables = resolveThemeVariables(palette, appearance, activeThemePreset);
+    applyThemePalette(palette, appearance, activeThemePreset);
+    if (!hasLoadedPreferencesRef.current) return;
     publishDesktopAppearance({
       appearance,
-      fontFamily: settings?.fontFamily,
-      codeFontFamily: settings?.codeFontFamily,
+      themeVariables,
+      persist: true,
     });
-  }, [appearance, settings?.fontFamily, settings?.codeFontFamily]);
+  }, [appearance, darkThemePreset, lightThemePreset, themeConfig]);
 
   useEffect(() => {
     const publishLanguage = (language: string) => {
@@ -337,8 +508,7 @@ function Root() {
             appearance={appearance}
             accentColor="gray"
             grayColor="gray"
-            radius="medium"
-            scaling="100%"
+            panelBackground="solid"
           >
             {!isReady ? (
               <GlobalLoading
@@ -355,7 +525,10 @@ function Root() {
                 <AppContent
                   appearance={appearance}
                   version={FRONTEND_VERSION}
-                  setAppearance={setAppearance}
+                  themeMode={themeMode}
+                  setThemeMode={applyThemeMode}
+                  setThemeSettings={applyThemeSettings}
+                  previewThemeSettings={previewThemeSettings}
                   toggleTheme={toggleTheme}
                 />
               </ErrorBoundary>

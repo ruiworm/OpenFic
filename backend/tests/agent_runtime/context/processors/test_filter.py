@@ -1,7 +1,9 @@
+import json
 from typing import Literal
 
 from app.agent_runtime.context.processors.filter import (
     filter_invalid,
+    filter_tool_result_metadata,
     filter_tool_result_metadata_content,
 )
 from app.agent_runtime.context.types import ContextMessage
@@ -112,3 +114,160 @@ def test_tool_result_metadata_content_keeps_success_result() -> None:
     content = '{"success":true,"metadata":{"note_diff":{"note_id":"note-1"}}}'
 
     assert filter_tool_result_metadata_content(content) == '{"success": true}'
+
+
+def test_tool_result_context_formats_web_search_results() -> None:
+    content = json.dumps(
+        {
+            "query": "量子计算",
+            "provider": "serper",
+            "answer": "answer should not be sent",
+            "results": [
+                {
+                    "title": "标题一",
+                    "url": "https://example.com/one",
+                    "snippet": "摘要一",
+                },
+                {
+                    "title": "标题二",
+                    "url": "https://example.com/two",
+                    "snippet": "摘要二",
+                },
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    assert filter_tool_result_metadata_content(content, tool_name="web_search") == (
+        "[ `量子计算` 的搜索结果 ]\n\n"
+        "1. 标题一\n"
+        "    摘要一\n"
+        "    URL: https://example.com/one\n\n"
+        "2. 标题二\n"
+        "    摘要二\n"
+        "    URL: https://example.com/two"
+    )
+
+
+def test_tool_result_context_formats_web_fetch_content() -> None:
+    content = json.dumps(
+        {
+            "url": "https://example.com/article",
+            "title": "文章标题",
+            "icon_url": "https://example.com/favicon.ico",
+            "content": "网页正文\n\n## 第二节",
+            "metadata": {"display_only": True},
+        },
+        ensure_ascii=False,
+    )
+
+    assert filter_tool_result_metadata_content(content, tool_name="web_fetch") == (
+        "网页正文\n\n## 第二节"
+    )
+
+
+def test_filter_tool_result_metadata_formats_named_web_search_message() -> None:
+    content = json.dumps(
+        {
+            "query": "OpenFic",
+            "results": [
+                {
+                    "title": "项目主页",
+                    "url": "https://example.com/openfic",
+                    "snippet": "项目简介",
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    message = ContextMessage(
+        role="tool",
+        content=content,
+        name="web_search",
+        metadata={"part": "history"},
+    )
+
+    filtered = filter_tool_result_metadata([message])
+
+    assert filtered[0].content == (
+        "[ `OpenFic` 的搜索结果 ]\n\n"
+        "1. 项目主页\n"
+        "    项目简介\n"
+        "    URL: https://example.com/openfic"
+    )
+
+
+def test_tool_failure_content_exposes_only_message_to_model() -> None:
+    content = (
+        '{"type":"fail","success":false,"code":"not_found",'
+        '"message":"未找到章节：第三章",'
+        '"trace":{"exception_type":"ToolExecutionError"}}'
+    )
+
+    assert filter_tool_result_metadata_content(content) == "未找到章节：第三章"
+
+
+def test_tool_failure_content_keeps_legacy_error_compatible() -> None:
+    content = '{"error":"未找到章节：第三章","metadata":{"internal":"value"}}'
+
+    assert filter_tool_result_metadata_content(content) == "未找到章节：第三章"
+
+
+def test_tool_failure_content_keeps_legacy_subagent_resume_identity() -> None:
+    content = (
+        '{"dispatch_id":"dispatch-1","agent_key":"writer",'
+        '"agent_number":"#1001","error":"子代理会话已被用户中断"}'
+    )
+
+    assert json.loads(filter_tool_result_metadata_content(content)) == {
+        "type": "fail",
+        "success": False,
+        "code": "execution_failed",
+        "message": "子代理会话已被用户中断",
+        "dispatch_id": "dispatch-1",
+        "agent_key": "writer",
+        "agent_number": "#1001",
+    }
+
+
+def test_tool_failure_content_keeps_subagent_resume_identity() -> None:
+    content = (
+        '{"type":"fail","success":false,"code":"execution_failed",'
+        '"message":"子代理会话已被用户中断",'
+        '"dispatch_id":"dispatch-1","agent_key":"writer",'
+        '"agent_number":"#1001","trace":{"source":"persistence_finalize"}}'
+    )
+
+    assert json.loads(filter_tool_result_metadata_content(content)) == {
+        "type": "fail",
+        "success": False,
+        "code": "execution_failed",
+        "message": "子代理会话已被用户中断",
+        "dispatch_id": "dispatch-1",
+        "agent_key": "writer",
+        "agent_number": "#1001",
+    }
+
+
+def test_tool_control_content_preserves_control_state() -> None:
+    content = (
+        '{"type":"control","success":false,"status":"approval_denied",'
+        '"message":"工具调用已被用户拒绝","approval_id":"approval-1",'
+        '"metadata":{"internal":"value"}}'
+    )
+
+    assert json.loads(filter_tool_result_metadata_content(content)) == {
+        "type": "control",
+        "success": False,
+        "status": "approval_denied",
+        "message": "工具调用已被用户拒绝",
+        "approval_id": "approval-1",
+    }
+
+
+def test_tool_failure_content_identifies_missing_message_by_code() -> None:
+    content = '{"type":"fail","success":false,"code":"not_found"}'
+
+    assert filter_tool_result_metadata_content(content) == (
+        "工具错误（not_found）：未提供具体错误消息"
+    )

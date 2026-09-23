@@ -43,7 +43,7 @@ async function getReleaseNotes(info: UpdateInfo): Promise<string | undefined> {
 
   try {
     const response = await autoUpdater.netSession.fetch(
-      `https://api.github.com/repos/syrizelink/OpenFic/releases/tags/v${encodeURIComponent(info.version)}`,
+      `https://api.github.com/repos/ruiworm/OpenFic/releases/tags/v${encodeURIComponent(info.version)}`,
       { headers: { Accept: "application/vnd.github+json" } },
     );
     if (!response.ok) return getUpdaterReleaseNotes(info);
@@ -190,10 +190,10 @@ export function cancelUpdateDownload(): void {
 
 export function installUpdate(): void {
   if (updateState.status !== "downloaded") return;
-  autoUpdater.quitAndInstall(true, true);
+  autoUpdater.quitAndInstall(false, true);
 }
 
 export async function openUpdateRelease(): Promise<void> {
   if (!updateState.version) return;
-  await shell.openExternal(`https://github.com/syrizelink/OpenFic/releases/tag/v${encodeURIComponent(updateState.version)}`);
+  await shell.openExternal(`https://github.com/ruiworm/OpenFic/releases/tag/v${encodeURIComponent(updateState.version)}`);
 }

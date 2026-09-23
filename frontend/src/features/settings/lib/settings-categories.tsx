@@ -4,8 +4,11 @@ import {
   Cable,
   Database,
   FileText,
+  Globe,
   MessagesSquare,
+  Palette,
   Package,
+  Summary as SummaryIcon,
   Settings as SettingsIcon,
   ShieldAlert,
   SlidersHorizontal,
@@ -15,12 +18,15 @@ import type { ReactNode } from "react";
 
 export type SettingsCategory =
   | "general"
+  | "personalization"
   | "editor"
   | "connections"
   | "models"
   | "index"
   | "context"
+  | "summary"
   | "agent-tools"
+  | "web-search"
   | "rules"
   | "skills"
   | "agents"
@@ -37,6 +43,11 @@ export const SETTINGS_CATEGORY_ITEMS: SettingsCategoryItem[] = [
     id: "general",
     icon: <SettingsIcon size={16} />,
     labelKey: "settings.general",
+  },
+  {
+    id: "personalization",
+    icon: <Palette size={16} />,
+    labelKey: "settings.personalization",
   },
   {
     id: "editor",
@@ -64,9 +75,19 @@ export const SETTINGS_CATEGORY_ITEMS: SettingsCategoryItem[] = [
     labelKey: "settings.context",
   },
   {
+    id: "summary",
+    icon: <SummaryIcon size={16} />,
+    labelKey: "settings.summary",
+  },
+  {
     id: "agent-tools",
     icon: <ShieldAlert size={16} />,
     labelKey: "settings.agentTools",
+  },
+  {
+    id: "web-search",
+    icon: <Globe size={16} />,
+    labelKey: "settings.webSearch",
   },
   {
     id: "rules",

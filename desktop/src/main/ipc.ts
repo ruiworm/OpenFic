@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   IpcChannels,
   type BackupDataRequest,
+  type CheckPathOverlapRequest,
   type DataProgressEvent,
   type DeleteInstanceRequest,
   type DeleteInstanceResult,
@@ -22,6 +23,7 @@ import {
   type ReportErrorPayload,
   type RestoreDataRequest,
   type SaveConfigRequest,
+  type SaveInstanceAppearanceRequest,
   type SaveZoomFactorRequest,
   type StartLocalBackendRequest,
   type SwitchInstanceRequest,
@@ -48,7 +50,7 @@ import { createStartupProgressTracker, getStartupProgress } from "./startup-prog
 import { appendLog, exportLogs } from "./logging.js";
 import { captureException } from "./telemetry.js";
 import type { BackendProcessHandle } from "./process.js";
-import type { DesktopConfig, DesktopInstance } from "../shared/config.js";
+import { isDesktopInstanceAppearance, type DesktopConfig, type DesktopInstance } from "../shared/config.js";
 
 const PROJECT_HOME_URL = "https://github.com/syrizelink/OpenFic";
 const BUG_REPORT_URL = `${PROJECT_HOME_URL}/issues/new?template=bug-report.yml`;
@@ -67,6 +69,12 @@ function normalizeZoomFactor(zoomFactor: number): number {
   return Math.round(clampedZoomFactor * 10) / 10;
 }
 
+function isSaveInstanceAppearanceRequest(value: unknown): value is SaveInstanceAppearanceRequest {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as SaveInstanceAppearanceRequest;
+  return typeof candidate.instanceId === "string" && isDesktopInstanceAppearance(candidate);
+}
+
 function getLocalInstanceDeletionPaths(instance: DesktopInstance): LocalInstanceDeletionPaths {
   const installDir = instance.installDir ?? getDefaultInstallDir();
   const dataDir = resolveDataDir(instance);
@@ -77,6 +85,19 @@ function getLocalInstanceDeletionPaths(instance: DesktopInstance): LocalInstance
     dataDir: path.resolve(dataDir),
     runtimeDir: path.resolve(resolveRuntimeDir(installDir)),
   };
+}
+
+async function isDataDirNestedWithInstallDirectory(dataDir: string, runtimeInstallDir?: string): Promise<boolean> {
+  const installDirs = [path.dirname(app.getPath("exe"))];
+  if (runtimeInstallDir) {
+    const [isDefaultDataDir, isDefaultInstallDir] = await Promise.all([
+      arePathsEqual(dataDir, getDefaultDataDir()),
+      arePathsEqual(runtimeInstallDir, getDefaultInstallDir()),
+    ]);
+    if (!isDefaultDataDir || !isDefaultInstallDir) installDirs.push(resolveRuntimeDir(runtimeInstallDir));
+  }
+  const overlaps = await Promise.all(installDirs.map((installDir) => doPathsOverlap(dataDir, installDir)));
+  return overlaps.some(Boolean);
 }
 
 async function isDataDirShared(
@@ -244,6 +265,32 @@ export function registerIpc(context: IpcContext): void {
     await writeDesktopConfig(nextConfig);
     context.onConfigSaved(nextConfig);
   }));
+
+  ipcMain.handle(
+    IpcChannels.saveInstanceAppearance,
+    (_event, request: SaveInstanceAppearanceRequest) =>
+      enqueueConfigMutation(async () => {
+        if (!isSaveInstanceAppearanceRequest(request)) throw new Error("无效的实例外观配置");
+        const config = await readDesktopConfig();
+        if (!config) return;
+        if (!config.instances.some((instance) => instance.id === request.instanceId)) return;
+        const nextConfig: DesktopConfig = {
+          ...config,
+          instances: config.instances.map((instance) =>
+            instance.id === request.instanceId
+              ? {
+                  ...instance,
+                  ...(request.appearance === undefined ? {} : { appearance: request.appearance }),
+                  ...(request.fontFamily === undefined ? {} : { fontFamily: request.fontFamily }),
+                  ...(request.codeFontFamily === undefined ? {} : { codeFontFamily: request.codeFontFamily }),
+                  ...(request.themeVariables === undefined ? {} : { themeVariables: request.themeVariables }),
+                }
+              : instance,
+          ),
+        };
+        await writeDesktopConfig(nextConfig);
+      }),
+  );
 
   ipcMain.handle(IpcChannels.getZoomFactor, async () => {
     await pendingConfigMutation;
@@ -442,9 +489,11 @@ export function registerIpc(context: IpcContext): void {
     if (!instance) throw new Error("实例不存在");
     const dataDir = resolveDataDir(instance);
     const inspection = await inspectDataDir(dataDir);
+    const installDir = instance.mode === "local" ? instance.installDir ?? getDefaultInstallDir() : undefined;
     return {
       dataDir,
       isDefaultLocation: instance.dataDir === null,
+      nestedWithInstallDir: await isDataDirNestedWithInstallDirectory(dataDir, installDir),
       hasData: inspection.hasData,
       entryCount: inspection.entryCount,
       sizeBytes: inspection.sizeBytes,
@@ -452,8 +501,16 @@ export function registerIpc(context: IpcContext): void {
   });
 
   ipcMain.handle(IpcChannels.inspectDataDir, async (_event, request: InspectDataDirRequest) => {
-    return inspectDataDir(request.dataDir);
+    const inspection = await inspectDataDir(request.dataDir);
+    return {
+      ...inspection,
+      nestedWithInstallDir: await isDataDirNestedWithInstallDirectory(request.dataDir, request.installDir),
+    };
   });
+
+  ipcMain.handle(IpcChannels.checkPathOverlap, (_event, request: CheckPathOverlapRequest) =>
+    isDataDirNestedWithInstallDirectory(request.dataDir, request.installDir),
+  );
 
   ipcMain.handle(IpcChannels.migrateData, (_event, request: MigrateDataRequest) =>
     enqueueConfigMutation(async (): Promise<MigrateDataResult> => {

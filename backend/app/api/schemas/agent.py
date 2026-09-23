@@ -48,24 +48,40 @@ class AgentSessionCreateResponse(BaseModel):
 
 
 class AgentAttachmentResponse(BaseModel):
-    """Agent 图片附件元数据。"""
+    """Agent 附件元数据。"""
 
     id: str = Field(..., description="附件 ID")
     session_id: str = Field(..., description="所属会话 ID")
     storage_name: str = Field(..., description="服务端存储相对路径")
     file_name: str = Field(..., description="原始文件名")
-    mime_type: str = Field(..., description="图片 MIME 类型")
+    mime_type: str = Field(..., description="文件 MIME 类型")
     size_bytes: int = Field(..., description="文件大小")
-    width: int = Field(..., description="图片宽度")
-    height: int = Field(..., description="图片高度")
-    url: str = Field(..., description="图片展示地址")
+    content_length: int = Field(default=0, description="提取后的文本字符数")
+    line_count: int = Field(default=0, description="提取后的文本行数")
+    width: int | None = Field(default=None, description="图片宽度")
+    height: int | None = Field(default=None, description="图片高度")
+    url: str = Field(..., description="附件展示地址")
+
+
+class AgentAttachmentErrorRequest(BaseModel):
+    """上传或解析失败的附件描述。"""
+
+    id: str = Field(..., min_length=1, description="客户端附件 ID")
+    file_name: str = Field(..., min_length=1, description="附件文件名")
+    mime_type: str = Field(default="application/octet-stream", description="附件 MIME 类型")
+    size_bytes: int = Field(default=0, ge=0, description="附件大小")
+    error: str = Field(..., min_length=1, description="附件错误信息")
 
 
 class AgentSendMessageRequest(BaseModel):
     """发送用户消息请求。"""
 
     message: str = Field(default="", description="用户消息内容")
-    attachments: list[str] = Field(default_factory=list, description="图片附件 ID 列表")
+    attachments: list[str] = Field(default_factory=list, description="附件 ID 列表")
+    attachment_errors: list[AgentAttachmentErrorRequest] = Field(
+        default_factory=list,
+        description="上传或解析失败的附件错误列表",
+    )
     model_id: str | None = Field(default=None, description="下一轮执行使用的模型ID")
     agent_key: str | None = Field(default=None, description="下一轮执行使用的主智能体标识")
     reasoning_effort: ReasoningEffort | None = Field(
@@ -167,7 +183,7 @@ class AgentInterruptResumeRequest(BaseModel):
     responses: list[AgentInterruptResponseItem] = Field(
         ...,
         min_length=1,
-        max_length=10,
+        max_length=20,
         description="本批全部中断响应",
     )
 
@@ -186,6 +202,86 @@ class AgentSessionStateResponse(BaseModel):
     state: dict = Field(..., description="状态信息")
     is_running: bool = Field(default=False, description="会话是否仍有后台运行任务")
     interrupts: list[dict] = Field(default_factory=list, description="待处理的可恢复中断")
+
+
+class AgentChangeLineResponse(BaseModel):
+    """单行 Agent 内容变更。"""
+
+    type: str = Field(description="变更行类型：context、added 或 removed")
+    before_line_number: int | None = Field(default=None, description="变更前行号")
+    after_line_number: int | None = Field(default=None, description="变更后行号")
+    text: str = Field(default="", description="变更行内容")
+
+
+class AgentChangeSectionResponse(BaseModel):
+    """Agent 内容变更。"""
+
+    type: str = Field(description="变更类型：content")
+    lines: list[AgentChangeLineResponse] = Field(default_factory=list, description="内容变更行")
+
+
+class AgentChangeItemResponse(BaseModel):
+    """单个 Agent 内容变更项。"""
+
+    key: str = Field(description="变更实体键")
+    kind: str = Field(description="实体类型")
+    title: str = Field(description="实体标题")
+    title_before: str | None = Field(default=None, description="标题变更前文本")
+    title_after: str | None = Field(default=None, description="标题变更后文本")
+    operation: str = Field(description="变更操作")
+    path: list[str] = Field(default_factory=list, description="实体所属层级路径")
+    sections: list[AgentChangeSectionResponse] = Field(default_factory=list, description="Diff 分段")
+    added: int = Field(default=0, description="新增行数")
+    removed: int = Field(default=0, description="删除行数")
+    source_message_id: str = Field(description="来源工具消息 ID")
+    source: str = Field(description="变更来源：primary、subagent 或 session")
+    child_run_id: str | None = Field(default=None, description="来源子运行 ID")
+    request_id: str | None = Field(default=None, description="来源子运行请求 ID")
+    agent_key: str | None = Field(default=None, description="来源子代理标识")
+    agent_number: str | None = Field(default=None, description="来源子代理编号")
+    revision_id: str | None = Field(default=None, description="所属 revision ID")
+
+
+class AgentChangeSummaryResponse(BaseModel):
+    """Agent 内容变更汇总。"""
+
+    item_count: int = Field(default=0, description="变更项数量")
+    added: int = Field(default=0, description="新增行数")
+    removed: int = Field(default=0, description="删除行数")
+    items: list[AgentChangeItemResponse] = Field(default_factory=list, description="变更项")
+
+
+class AgentSubagentRunChangesResponse(BaseModel):
+    """单个 subagent 请求产生的变更。"""
+
+    child_run_id: str = Field(description="子运行 ID")
+    child_thread_id: str = Field(description="子线程 ID")
+    request_id: str | None = Field(default=None, description="子运行请求 ID")
+    child_user_message_id: str | None = Field(default=None, description="子运行用户消息 ID")
+    agent_key: str = Field(description="子代理标识")
+    agent_number: str | None = Field(default=None, description="子代理编号")
+    changes: AgentChangeSummaryResponse = Field(description="该 subagent 请求的变更")
+
+
+class AgentTurnChangesResponse(BaseModel):
+    """主会话单个 turn 的变更。"""
+
+    revision_id: str = Field(description="该 turn 的 revision ID")
+    user_message_id: str | None = Field(default=None, description="触发 turn 的用户消息 ID")
+    user_message_seq: int | None = Field(default=None, description="触发 turn 的用户消息序号")
+    changes: AgentChangeSummaryResponse = Field(description="该 turn 的完整变更")
+    subagent_runs: list[AgentSubagentRunChangesResponse] = Field(
+        default_factory=list,
+        description="该 turn 下的 subagent 变更",
+    )
+
+
+class AgentSessionChangesResponse(BaseModel):
+    """主会话及其 subagent 的完整变更。"""
+
+    session_id: str = Field(description="Agent 会话 ID")
+    turns: list[AgentTurnChangesResponse] = Field(default_factory=list, description="按 turn 分组的变更")
+    session_changes: AgentChangeSummaryResponse = Field(description="整个会话的变更")
 
 
 class ActiveSubagentStateResponse(BaseModel):
@@ -273,7 +369,7 @@ class AgentRollbackResponse(BaseModel):
     restored_message_content: str = Field(..., description="恢复的消息内容")
     restored_attachments: list[AgentAttachmentResponse] = Field(
         default_factory=list,
-        description="恢复到输入框的图片附件",
+        description="恢复到输入框的附件",
     )
 
 

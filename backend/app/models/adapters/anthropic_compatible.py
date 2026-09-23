@@ -1,8 +1,22 @@
 """Anthropic-compatible provider adapter."""
 
 import httpx
+from collections.abc import Mapping
 
 from app.models.adapters.base import BaseAdapter
+
+
+ANTHROPIC_COMPATIBLE_PROVIDER_TYPES = frozenset(
+    {
+        "freemodel",
+        "minimax",
+        "minimax-cn",
+        "minimax-coding-plan",
+        "minimax-cn-coding-plan",
+        "subconscious",
+        "thinkingmachines",
+    }
+)
 
 
 class AnthropicCompatibleAdapter(BaseAdapter):
@@ -16,7 +30,12 @@ class AnthropicCompatibleAdapter(BaseAdapter):
         return False
 
     async def get_llm_models(
-        self, client: httpx.AsyncClient, base_url: str, api_key: str
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        api_key: str,
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> list[dict[str, str]]:
         url = self._normalize_url(base_url)
         for suffix in ("/anthropic", "/claude"):
@@ -26,12 +45,14 @@ class AnthropicCompatibleAdapter(BaseAdapter):
         if not url.endswith("/v1"):
             url = f"{url}/v1"
 
+        request_headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+        request_headers.update(headers or {})
         response = await client.get(
             f"{url}/models",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-            },
+            headers=request_headers,
         )
         response.raise_for_status()
         data = response.json()
@@ -46,6 +67,11 @@ class AnthropicCompatibleAdapter(BaseAdapter):
         ]
 
     async def get_embedding_models(
-        self, client: httpx.AsyncClient, base_url: str, api_key: str
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        api_key: str,
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> list[dict[str, str]]:
         return []

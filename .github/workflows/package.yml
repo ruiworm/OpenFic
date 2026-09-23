@@ -373,12 +373,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: 整理 Windows 自动更新产物
-        working-directory: desktop
-        run: node scripts/prepare-windows-update.mjs
       - name: 确保 release 存在
         run: |
           gh release view "${{ needs.context.outputs.release_tag }}" >/dev/null 2>&1 || gh release create "${{ needs.context.outputs.release_tag }}" --title "${{ needs.context.outputs.release_tag }}" --notes "NovelForge"
+      - name: 整理 Windows 自动更新产物
+        working-directory: desktop
+        run: node scripts/prepare-windows-update.mjs
       - name: 发布 Windows 自动更新产物
         run: |
           gh release upload "${{ needs.context.outputs.release_tag }}" \
@@ -390,8 +390,8 @@ jobs:
 
   # ---------------------------------------------------------------- release
   publish-release:
-    needs: [context, desktop]
-    if: ${{ always() && needs.desktop.result == 'success' }}
+    needs: [context, desktop, desktop-windows-update]
+    if: ${{ always() && needs.desktop.result == 'success' && needs.desktop-windows-update.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

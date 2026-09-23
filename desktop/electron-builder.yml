@@ -7,7 +7,7 @@ directories:
 
 publish:
   provider: github
-  owner: syrizelink
+  owner: ruiworm
   repo: OpenFic
   releaseType: release
 
@@ -37,6 +37,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  include: build/installer.nsh
   artifactName: NovelForge-${version}-win-${arch}-setup.${ext}
 
 mac:

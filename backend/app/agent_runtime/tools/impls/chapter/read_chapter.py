@@ -1,3 +1,5 @@
+from textwrap import dedent
+
 from pydantic import BaseModel, Field
 
 from app.agent_runtime.tools.base import AgentTool
@@ -36,11 +38,12 @@ def format_chapter_content_with_line_numbers(content: str) -> str:
 @ToolRegistry.register
 class ReadChapterTool(AgentTool):
     name: str = "read_chapter"
-    description: str = (
-        "读取指定卷内章节的完整内容"
-        "必须使用 volume_ref 指定目标卷，并使用 chapter_ref 指定目标章节"
-        "返回的 content 会按章节内从 1 开始的行号格式化，每个原始换行都会拆分为单独一行，格式为 `行号|内容`"
-    )
+    description: str = dedent("""\
+        读取指定卷内章节的完整内容
+        必须使用volume_ref指定目标卷，并使用chapter_ref指定目标章节
+        返回的content是按章节内从1开始的行号格式化后的结果，原始内容不含行号标记
+        每个原始换行都会拆分为单独一行，并添加行号标记，格式为 `行号|内容`
+    """)
     access_level: str = "readonly"
     args_schema: type[BaseModel] = ReadChapterInput
 
@@ -51,8 +54,13 @@ class ReadChapterTool(AgentTool):
         try:
             volumes = await volume_repo.list_by_project(session, self.project_id)
             resolved_volume = resolve_volume_from_list(volumes, volume)
-            chapters = await chapter_repo.list_by_volume(session, resolved_volume.id)
-            match = resolve_chapter_from_list(chapters, ref)
+            matched = await chapter_repo.get_by_volume_ref(
+                session,
+                resolved_volume.id,
+                ref_type=ref.type,
+                ref_value=ref.value,
+            )
+            match = resolve_chapter_from_list([matched] if matched is not None else [], ref)
             return ReadChapterOutput(
                 order=match.order,
                 title=match.title,
