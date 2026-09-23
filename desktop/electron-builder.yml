@@ -55,7 +55,7 @@ linux:
   synopsis: An AI-native writing tool for fiction authors
   description: NovelForge is an AI-native, cross-platform writing tool built for fiction authors.
   maintainer: Syrize <syrize@qq.com>
-  vendor: syrizelink
+  vendor: ruiworm
   target:
     - AppImage
     - tar.gz

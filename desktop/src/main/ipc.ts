@@ -52,7 +52,7 @@ import { captureException } from "./telemetry.js";
 import type { BackendProcessHandle } from "./process.js";
 import { isDesktopInstanceAppearance, type DesktopConfig, type DesktopInstance } from "../shared/config.js";
 
-const PROJECT_HOME_URL = "https://github.com/syrizelink/OpenFic";
+const PROJECT_HOME_URL = "https://github.com/ruiworm/OpenFic";
 const BUG_REPORT_URL = `${PROJECT_HOME_URL}/issues/new?template=bug-report.yml`;
 const FEATURE_SUGGESTION_URL = `${PROJECT_HOME_URL}/issues/new?template=feature-request.yml`;
 const MIN_ZOOM_FACTOR = 0.7;

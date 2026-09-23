@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
-urls = { Homepage = "https://github.com/syrizelink/OpenFic", Repository = "https://github.com/syrizelink/OpenFic" }
+urls = { Homepage = "https://github.com/ruiworm/OpenFic", Repository = "https://github.com/ruiworm/OpenFic" }
 dependencies = [
     "aiocache>=0.12.3",
     "aiofiles>=22.0",
