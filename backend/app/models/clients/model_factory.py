@@ -251,7 +251,10 @@ def create_chat_model(config: ModelConfig) -> Runnable[LanguageModelInput, BaseM
             model=config.model_id,
             api_key=config.api_key,
             base_url=config.base_url or None,
-            app_url=OPENROUTER_APP_URL or None,
+            # 必须显式传空串而不是 None：None 会被 _compact_kwargs 剔除，
+            # 于是回落到 langchain-openrouter 的默认值（LangChain 文档地址）
+            # 并把 HTTP-Referer 发给 OpenRouter。空串为假值，库不会设置该头。
+            app_url=OPENROUTER_APP_URL,
             app_title=OPENROUTER_APP_TITLE,
             app_categories=list(OPENROUTER_APP_CATEGORIES),
             temperature=_non_default(config.temperature, DEFAULT_TEMPERATURE),

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import EncryptionService
+from app.core.errors import ProviderTimeoutError
 from app.models.clients.embedding_client import EmbeddingClientConfigLike
 from app.models.repos import model_provider_repo, model_repo
 from app.retrieval.service import OpenFicRetrievalService
@@ -92,6 +93,13 @@ class FakeRerankClient:
             model="fake-reranker",
             usage={"total_tokens": 5},
         )
+
+
+class FailingRerankClient:
+    """模拟内置重排模型下载失败/超时的重排客户端。"""
+
+    async def rerank(self, query: str, documents: list[str], top_n: int | None = None):
+        raise ProviderTimeoutError("内置重排模型加载或推理超时（60s）")
 
 
 def _make_contract(embedding_model_ref_id: str) -> RetrievalIndexContract:
@@ -555,6 +563,57 @@ async def test_query_supports_vector_bm25_hybrid_and_rerank(
     )
     assert hybrid_results[0].rerank_score == 0.99
     assert hybrid_results[1].rerank_score == 0.51
+
+
+@pytest.mark.asyncio
+async def test_hybrid_query_falls_back_to_rrf_when_rerank_fails(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """重排失败（模型下载失败/超时/接口报错）时应降级为 RRF 排序而非中断检索。"""
+    model = await _create_embedding_model(session)
+    service = OpenFicRetrievalService(base_dir=tmp_path / "lancedb")
+    contract = _make_contract(model.id)
+    embedding_client = FakeEmbeddingClient()
+
+    await service.register_index(session, "chapters", contract)
+    await service.index_documents(
+        session,
+        "chapters",
+        [
+            IndexDocument(
+                document_id="chapter-1",
+                text="The hero meets a dragon and joins the guild.",
+                attributes={"project_id": "p1", "chapter_order": 1},
+            ),
+            IndexDocument(
+                document_id="chapter-2",
+                text="The guild turns on the hero after the feast.",
+                attributes={"project_id": "p1", "chapter_order": 2},
+            ),
+        ],
+        embedding_client,
+    )
+
+    query = await service.query(session, "chapters", "hero guild", embedding_client)
+    baseline_results = await (
+        query.hybrid().vector_top_k(2).bm25_top_k(2).rrf(k=10).limit(2).run()
+    )
+    degraded_results = await (
+        query
+        .hybrid()
+        .vector_top_k(2)
+        .bm25_top_k(2)
+        .rrf(k=10)
+        .rerank(FailingRerankClient(), top_n=2)
+        .limit(2)
+        .run()
+    )
+
+    assert [row.document_id for row in degraded_results] == [
+        row.document_id for row in baseline_results
+    ]
+    assert all(row.rerank_score is None for row in degraded_results)
+    assert all(row.score > 0 for row in degraded_results)
 
 
 @pytest.mark.asyncio

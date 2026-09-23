@@ -177,4 +177,16 @@ class RerankClient:
                 items = sorted(items, key=lambda it: it.relevance_score, reverse=True)[:top_n]
             return RerankResponse(results=items, model=self.config.model_id)
 
-        return await asyncio.to_thread(_compute)
+        # 本地重排模型可能因未缓存而触发下载，或推理耗时过长。
+        # 这里加超时保护，超时后由上层（检索构建器）降级为 RRF 排序，
+        # 避免一次重排把整次章节检索拖垮。
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_compute),
+                timeout=float(self.config.request_timeout),
+            )
+        except TimeoutError as exc:
+            raise ProviderTimeoutError(
+                f"内置重排模型加载或推理超时（{self.config.request_timeout}s）: "
+                f"{self.config.model_id}"
+            ) from exc

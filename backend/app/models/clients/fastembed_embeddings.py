@@ -16,6 +16,8 @@ import asyncio
 import os
 import shutil
 import tarfile
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -28,6 +30,50 @@ from app.settings import BACKEND_DATA_DIR
 
 _FASTEMBED_CACHE_DIR = BACKEND_DATA_DIR / "fastembed_cache"
 _DOWNLOAD_TIMEOUT_SECONDS = 120
+
+# 下载失败冷却窗口（秒）。无 GCS 源的模型（内置重排模型即属此类）只能走
+# HuggingFace；网络不可达时若不冷却，每次检索都会重新预检 + 重试，
+# 单次耗时可达十几秒。冷却期内直接快速失败，由调用方立即降级。
+_DOWNLOAD_FAILURE_COOLDOWN_SECONDS = 300
+
+# 失败状态表：source_key -> (失败时刻 monotonic, 错误摘要)。
+# source_key 形如 "gcs:<model>" / "hf:<model>"，两个来源互不阻塞。
+_download_failures: dict[str, tuple[float, str]] = {}
+_download_failure_guard = threading.Lock()
+
+# 进程级模型实例缓存。fastembed 构造 onnx 会话开销大（数百毫秒到数秒），
+# 缓存后同一模型的后续检索直接复用实例。
+_model_instances: dict[tuple[str, str], Any] = {}
+_model_locks: dict[tuple[str, str], threading.Lock] = {}
+_model_cache_guard = threading.Lock()
+
+
+def _download_failure_message(source_key: str) -> str | None:
+    """返回冷却期内的失败提示；不在冷却期时返回 None 并清理记录。"""
+    with _download_failure_guard:
+        entry = _download_failures.get(source_key)
+    if entry is None:
+        return None
+    elapsed = time.monotonic() - entry[0]
+    if elapsed >= _DOWNLOAD_FAILURE_COOLDOWN_SECONDS:
+        with _download_failure_guard:
+            _download_failures.pop(source_key, None)
+        return None
+    remaining = max(1, int(_DOWNLOAD_FAILURE_COOLDOWN_SECONDS - elapsed))
+    return (
+        f"{entry[1]}\n"
+        f"模型下载失败冷却中（约 {remaining} 秒后可重试），期间检索会自动降级。"
+    )
+
+
+def _record_download_failure(source_key: str, message: str) -> None:
+    with _download_failure_guard:
+        _download_failures[source_key] = (time.monotonic(), message)
+
+
+def _clear_download_failure(source_key: str) -> None:
+    with _download_failure_guard:
+        _download_failures.pop(source_key, None)
 
 
 def _resolve_cache_dir() -> Path:
@@ -125,33 +171,44 @@ def _ensure_model_from_gcs(
     deprecated_tar = sources.get("_deprecated_tar_struct", False)
     fast_name = f"{'fast-' if deprecated_tar else ''}{model_name.split('/')[-1]}"
     model_dir = cache_dir / fast_name
+    source_key = f"gcs:{model_name}"
 
     if model_dir.exists() and any(model_dir.iterdir()):
+        _clear_download_failure(source_key)
         return True
+
+    cached_failure = _download_failure_message(source_key)
+    if cached_failure is not None:
+        raise RuntimeError(cached_failure)
 
     tar_gz_path = cache_dir / f"{fast_name}.tar.gz"
     tmp_dir = cache_dir / "tmp" / fast_name
 
-    logger.info("从 GCS 下载 fastembed 模型: {} -> {}", model_name, gcs_url)
-    _download_with_timeout(gcs_url, tar_gz_path, timeout_seconds=120)
+    try:
+        logger.info("从 GCS 下载 fastembed 模型: {} -> {}", model_name, gcs_url)
+        _download_with_timeout(gcs_url, tar_gz_path, timeout_seconds=120)
 
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir)
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(str(tar_gz_path), "r:gz") as tar:
-        tar.extractall(str(tmp_dir))  # noqa: S202
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(str(tar_gz_path), "r:gz") as tar:
+            tar.extractall(str(tmp_dir))  # noqa: S202
 
-    tar_gz_path.unlink(missing_ok=True)
-    extracted = tmp_dir / fast_name
-    if extracted.exists():
-        extracted.rename(model_dir)
-    else:
-        for child in tmp_dir.iterdir():
-            child.rename(model_dir)
-            break
-    shutil.rmtree(tmp_dir.parent, ignore_errors=True)
+        tar_gz_path.unlink(missing_ok=True)
+        extracted = tmp_dir / fast_name
+        if extracted.exists():
+            extracted.rename(model_dir)
+        else:
+            for child in tmp_dir.iterdir():
+                child.rename(model_dir)
+                break
+        shutil.rmtree(tmp_dir.parent, ignore_errors=True)
+    except Exception as exc:
+        _record_download_failure(source_key, f"内置模型下载失败（GCS）: {model_name}\n错误: {exc}")
+        raise
 
     logger.info("fastembed 模型已缓存: {} -> {}", model_name, model_dir)
+    _clear_download_failure(source_key)
     return True
 
 
@@ -241,31 +298,43 @@ def _ensure_model_from_hf(
     allow_patterns.extend(additional_files)
 
     snapshot_dir = cache_dir / f"models--{hf_repo.replace('/', '--')}"
+    source_key = f"hf:{model_name}"
     if snapshot_dir.exists() and any(snapshot_dir.rglob("*.onnx")):
+        _clear_download_failure(source_key)
         return True
 
-    _check_hf_reachable()
-    from huggingface_hub import snapshot_download
+    cached_failure = _download_failure_message(source_key)
+    if cached_failure is not None:
+        raise RuntimeError(cached_failure)
 
-    logger.info("从 HuggingFace 下载 fastembed 模型: {}", hf_repo)
     old_etag = os.environ.get("HF_HUB_ETAG_TIMEOUT")
     old_dl = os.environ.get("HF_HUB_DOWNLOAD_TIMEOUT")
     old_pbar = os.environ.get("HF_HUB_DISABLE_PROGRESS_BARS")
-    os.environ["HF_HUB_ETAG_TIMEOUT"] = "30"
-    os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "120"
-    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     try:
+        _check_hf_reachable()
+        from huggingface_hub import snapshot_download
+
+        logger.info("从 HuggingFace 下载 fastembed 模型: {}", hf_repo)
+        os.environ["HF_HUB_ETAG_TIMEOUT"] = "30"
+        os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "120"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         snapshot_download(
             repo_id=hf_repo,
             allow_patterns=allow_patterns,
             cache_dir=str(cache_dir),
         )
     except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
-        raise RuntimeError(
+        message = (
             f"内置模型下载失败（HuggingFace 不可达或超时）: {hf_repo}\n"
             f"错误: {exc}\n"
             "请检查网络连接后重试。"
-        ) from exc
+        )
+        _record_download_failure(source_key, message)
+        raise RuntimeError(message) from exc
+    except Exception as exc:
+        message = f"内置模型下载失败（HuggingFace）: {hf_repo}\n错误: {exc}"
+        _record_download_failure(source_key, message)
+        raise RuntimeError(message) from exc
     finally:
         if old_etag is None:
             os.environ.pop("HF_HUB_ETAG_TIMEOUT", None)
@@ -281,6 +350,7 @@ def _ensure_model_from_hf(
             os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = old_pbar
 
     logger.info("fastembed 模型已缓存(HF): {} -> {}", model_name, snapshot_dir)
+    _clear_download_failure(source_key)
     return True
 
 
@@ -297,12 +367,32 @@ def _instantiate_fastembed_model(
         return model_class(model_name=model_name)
 
 
-def _load_fastembed_model(model_class: Any, model_name: str) -> Any:
-    """加载 fastembed 模型，优先从 GCS 下载以绕过不可达的 HuggingFace。
+def _model_cache_key(model_class: Any, model_name: str) -> tuple[str, str]:
+    module = getattr(model_class, "__module__", "") or ""
+    qualname = (
+        getattr(model_class, "__qualname__", None)
+        or getattr(model_class, "__name__", None)
+        or repr(model_class)
+    )
+    return (f"{module}.{qualname}", model_name)
 
-    无 GCS 源的模型（如 rerank）回退到 HuggingFace，带超时保护，
-    网络不可达时快速失败而非无限挂起。
+
+def invalidate_fastembed_model_cache(model_name: str | None = None) -> None:
+    """清理进程级模型实例缓存。
+
+    传入 ``model_name`` 时只清理该模型，否则清空全部。
+    模型文件被重新下载或被替换后可调用此函数，避免继续复用旧实例。
     """
+    with _model_cache_guard:
+        if model_name is None:
+            _model_instances.clear()
+            return
+        for key in [key for key in _model_instances if key[1] == model_name]:
+            _model_instances.pop(key, None)
+
+
+def _load_fastembed_model_uncached(model_class: Any, model_name: str) -> Any:
+    """实际执行模型准备与实例化（不含缓存）。"""
     cache_dir = _resolve_cache_dir()
 
     gcs_ready = _ensure_model_from_gcs(model_class, model_name, cache_dir)
@@ -322,6 +412,33 @@ def _load_fastembed_model(model_class: Any, model_name: str) -> Any:
             _restore_hf_offline(old_state)
 
     return _instantiate_fastembed_model(model_class, model_name, cache_dir)
+
+
+def _load_fastembed_model(model_class: Any, model_name: str) -> Any:
+    """加载 fastembed 模型，优先从 GCS 下载以绕过不可达的 HuggingFace。
+
+    无 GCS 源的模型（如 rerank）回退到 HuggingFace，带超时保护，
+    网络不可达时快速失败而非无限挂起。
+
+    结果按 (模型类, 模型名) 做进程级缓存，并对同一模型使用单飞锁，
+    避免并发检索重复构造 onnx 会话。
+    """
+    key = _model_cache_key(model_class, model_name)
+    with _model_cache_guard:
+        cached = _model_instances.get(key)
+        if cached is not None:
+            return cached
+        lock = _model_locks.setdefault(key, threading.Lock())
+
+    with lock:
+        with _model_cache_guard:
+            cached = _model_instances.get(key)
+            if cached is not None:
+                return cached
+        model = _load_fastembed_model_uncached(model_class, model_name)
+        with _model_cache_guard:
+            _model_instances[key] = model
+        return model
 
 
 class FastEmbedEmbeddings(Embeddings):
@@ -352,4 +469,8 @@ class FastEmbedEmbeddings(Embeddings):
         return await asyncio.to_thread(self.embed_query, text)
 
 
-__all__ = ["FastEmbedEmbeddings", "_load_fastembed_model"]
+__all__ = [
+    "FastEmbedEmbeddings",
+    "_load_fastembed_model",
+    "invalidate_fastembed_model_cache",
+]

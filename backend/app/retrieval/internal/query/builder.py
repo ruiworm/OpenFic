@@ -185,20 +185,33 @@ class RetrievalQueryBuilder:
         if self.rerank_client is not None and ordered:
             top_n = min(self.rerank_top_n or len(ordered), len(ordered))
             candidates = ordered[:top_n]
-            reranked = await self.rerank_client.rerank(
-                self.query_text,
-                [candidate["text"] for candidate in candidates],
-                top_n=top_n,
-            )
-            reranked_order: list[dict[str, Any]] = []
-            for item in reranked.results:
-                candidate = candidates[item.index]
-                clamped = max(0.0, min(float(item.relevance_score), 1.0))
-                candidate["rerank_score"] = clamped
-                reranked_order.append(candidate)
-            seen = {candidate["chunk_id"] for candidate in reranked_order}
-            tail = [candidate for candidate in ordered if candidate["chunk_id"] not in seen]
-            ordered = reranked_order + tail
+            # 重排属于可选增强：本地重排模型缺失/下载失败、远端接口报错或超时
+            # 都不应让整次检索失败，此处降级为 RRF 排序结果。
+            try:
+                reranked = await self.rerank_client.rerank(
+                    self.query_text,
+                    [candidate["text"] for candidate in candidates],
+                    top_n=top_n,
+                )
+                reranked_order: list[dict[str, Any]] = []
+                for item in reranked.results:
+                    candidate = candidates[item.index]
+                    clamped = max(0.0, min(float(item.relevance_score), 1.0))
+                    candidate["rerank_score"] = clamped
+                    reranked_order.append(candidate)
+                seen = {candidate["chunk_id"] for candidate in reranked_order}
+                tail = [
+                    candidate
+                    for candidate in ordered
+                    if candidate["chunk_id"] not in seen
+                ]
+                ordered = reranked_order + tail
+            except Exception as exc:  # noqa: BLE001 - 重排失败必须降级而非中断
+                logger.warning(
+                    "检索: 重排失败，已降级为 RRF 排序结果 ({}) : {}",
+                    type(exc).__name__,
+                    exc,
+                )
 
         return [
             ChunkSearchResult.model_validate(row)

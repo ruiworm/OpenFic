@@ -5,6 +5,7 @@ Embedding Client - Embedding模型调用客户端。
 使用LangChain组件提供文本嵌入向量生成接口。
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -68,19 +69,24 @@ class EmbeddingClient:
         self.config = config
         self._embeddings: Embeddings | None = None
 
-    def _get_embeddings(self) -> Embeddings:
-        """获取或创建LangChain Embeddings实例。"""
-        if self._embeddings is not None:
-            return self._embeddings
-
+    def _resolve_provider(self) -> str:
+        """解析运行时使用的 provider 类型。"""
         config = self.config
-        provider = (
+        return (
             "builtin"
             if config.provider_type == "builtin"
             else "openai-compatible"
             if config.use_openai_compatible or config.provider_type == "ollama"
             else config.provider_type
         )
+
+    def _get_embeddings(self) -> Embeddings:
+        """获取或创建LangChain Embeddings实例。"""
+        if self._embeddings is not None:
+            return self._embeddings
+
+        config = self.config
+        provider = self._resolve_provider()
 
         if provider == "builtin":
             from app.models.clients.fastembed_embeddings import FastEmbedEmbeddings
@@ -150,11 +156,30 @@ class EmbeddingClient:
 
         return self._embeddings
 
+    async def _aget_embeddings(self) -> Embeddings:
+        """异步获取 Embeddings 实例。
+
+        builtin provider 使用本地 fastembed 模型，首次加载需要读取 onnx 权重
+        并创建推理会话，耗时可达数秒。同步执行会阻塞事件循环，拖慢同一进程内
+        的所有请求，因此放到线程池中执行。
+        """
+        if self._embeddings is not None:
+            return self._embeddings
+        if self._resolve_provider() != "builtin":
+            return self._get_embeddings()
+
+        from app.models.clients.fastembed_embeddings import FastEmbedEmbeddings
+
+        self._embeddings = await asyncio.to_thread(
+            FastEmbedEmbeddings, self.config.model_id
+        )
+        return self._embeddings
+
     async def embed(self, texts: list[str]) -> EmbeddingResponse:
         all_embeddings: list[list[float]] = []
 
         try:
-            embeddings_model = self._get_embeddings()
+            embeddings_model = await self._aget_embeddings()
             for i in range(0, len(texts), self.config.batch_size):
                 batch = texts[i : i + self.config.batch_size]
                 all_embeddings.extend(
@@ -179,7 +204,7 @@ class EmbeddingClient:
             嵌入向量。
         """
         try:
-            embeddings_model = self._get_embeddings()
+            embeddings_model = await self._aget_embeddings()
             return await embeddings_model.aembed_query(text)
         except Exception as e:
             logger.error(f"Embedding调用失败: {e}")

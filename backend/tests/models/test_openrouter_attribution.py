@@ -24,7 +24,8 @@ def test_create_chat_model_openrouter_adds_app_attribution() -> None:
         )
     )
 
-    assert model.app_url is None
+    # 空串：库仅在 app_url 为真值时设置 HTTP-Referer，因此不会外发 Referer。
+    assert model.app_url == ""
     assert model.app_title == "NovelForge"
     assert model.app_categories == ["creative-writing", "writing-assistant"]
 

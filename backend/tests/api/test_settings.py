@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import EncryptionService
+from app.models.builtin import BUILTIN_EMBEDDING_MODEL_ID
 from app.models.repos import model_provider_repo, model_repo
 from app.audit.queue import audit_queue
 from app.storage.models.llm_audit_log import LLMAuditLog
@@ -106,7 +107,8 @@ async def test_get_settings_default(client: AsyncClient) -> None:
     assert data["editor_font_size"] == 16
     assert data["default_model"] == ""
     assert data["light_model"] == ""
-    assert data["default_embedding_model"] == ""
+    # 出厂即指向随应用分发的内置向量模型，保证新装用户开箱即可检索。
+    assert data["default_embedding_model"] == BUILTIN_EMBEDDING_MODEL_ID
     assert data["index_mode"] == "off"
     assert data["index_enabled_projects"] == []
     assert data["index_chunk_size"] == 800

@@ -7,6 +7,7 @@ FastEmbed client tests - 内置 fastembed 客户端的 provider 路由逻辑。
 """
 
 import sys
+import time
 import types
 import warnings
 
@@ -160,3 +161,81 @@ def test_rerank_client_forces_openai_compatible_for_non_builtin_provider():
     )
 
     assert client.runtime_provider_type == "openai-compatible"
+
+
+def test_load_fastembed_model_reuses_cached_instance(monkeypatch):
+    """同一模型的第二次加载应复用缓存实例，不再重复构造 onnx 会话。"""
+    from app.models.clients import fastembed_embeddings as fe
+
+    fe.invalidate_fastembed_model_cache()
+    created: list[str] = []
+
+    class FakeModel:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+            created.append(model_name)
+
+    monkeypatch.setattr(fe, "_ensure_model_from_gcs", lambda *a, **k: True)
+    monkeypatch.setattr(
+        fe,
+        "_instantiate_fastembed_model",
+        lambda cls, name, cache_dir: FakeModel(name),
+    )
+
+    first = fe._load_fastembed_model(FakeModel, "unit-test-model")
+    second = fe._load_fastembed_model(FakeModel, "unit-test-model")
+
+    assert first is second
+    assert created == ["unit-test-model"]
+
+    fe.invalidate_fastembed_model_cache("unit-test-model")
+
+
+def test_hf_download_failure_enters_cooldown(monkeypatch, tmp_path):
+    """HF 不可达时首次失败会记录冷却，冷却期内不再重复预检。"""
+    from app.models.clients import fastembed_embeddings as fe
+
+    fe._download_failures.clear()
+    calls = {"count": 0}
+
+    class FakeModel:
+        @staticmethod
+        def list_supported_models():
+            return [
+                {
+                    "model": "unit/hf-model",
+                    "sources": {"hf": "unit/hf-model"},
+                    "model_file": "model.onnx",
+                }
+            ]
+
+    def fake_preflight() -> None:
+        calls["count"] += 1
+        raise RuntimeError("无法连接到 HuggingFace（网络不可达）")
+
+    monkeypatch.setattr(fe, "_check_hf_reachable", fake_preflight)
+
+    with pytest.raises(RuntimeError):
+        fe._ensure_model_from_hf(FakeModel, "unit/hf-model", tmp_path)
+    assert calls["count"] == 1
+
+    # 冷却期内：直接快速失败，未再次预检。
+    with pytest.raises(RuntimeError):
+        fe._ensure_model_from_hf(FakeModel, "unit/hf-model", tmp_path)
+    assert calls["count"] == 1
+
+    fe._download_failures.clear()
+
+
+def test_download_failure_cooldown_expires():
+    """冷却窗口过期后应清理失败记录，允许重新尝试。"""
+    from app.models.clients import fastembed_embeddings as fe
+
+    key = "hf:unit/expired-model"
+    fe._download_failures[key] = (
+        time.monotonic() - fe._DOWNLOAD_FAILURE_COOLDOWN_SECONDS - 1,
+        "boom",
+    )
+
+    assert fe._download_failure_message(key) is None
+    assert key not in fe._download_failures
