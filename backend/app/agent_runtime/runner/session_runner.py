@@ -24,6 +24,7 @@ from app.agent_runtime.context.helpers import (
 )
 from app.audit import AuditContext
 from app.agent_runtime.graph.orchestrator.graph import build_orchestrator_graph
+from app.agent_runtime.graph.llm_invoke import format_error_message
 from app.agent_runtime.graph.react_agent import _to_history_dict
 from app.agent_runtime.graph.state import AgentRuntimeState
 from app.agent_runtime.model_config import without_api_key
@@ -312,7 +313,7 @@ class SessionRunner:
 
     @staticmethod
     def _exception_reason(exc: Exception) -> str:
-        reason = str(exc).strip()
+        reason = format_error_message(exc)
         friendly = _friendly_error_reason(exc)
         if friendly is None:
             return reason or exc.__class__.__name__
