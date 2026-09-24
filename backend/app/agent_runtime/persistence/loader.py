@@ -18,6 +18,7 @@ from app.agent_runtime.persistence.errors import PersistenceLoadError
 from app.agent_runtime.persistence.model import AgentRunMessage
 from app.agent_runtime.context.processors.filter import filter_invalid
 from app.agent_runtime.context.types import ContextMessage
+from app.core.json_safe import safe_json_loads
 
 
 def _is_llm_history_message(row: AgentRunMessage) -> bool:
@@ -25,9 +26,19 @@ def _is_llm_history_message(row: AgentRunMessage) -> bool:
 
 
 def _tool_calls(row: AgentRunMessage) -> list[dict] | None:
+    """解析 assistant 消息的 tool_calls。
+
+    tool_calls 解析失败时降级为 None（该条消息按无工具调用处理），
+    不抛异常中断整段历史加载 —— 否则一条坏记录会让该会话每次续聊都失败。
+    """
     if not row.tool_calls:
         return None
-    return json.loads(row.tool_calls)
+    return safe_json_loads(
+        row.tool_calls,
+        None,
+        context=f"load_history._tool_calls(message_id={row.id})",
+        expected=list,
+    )
 
 
 def _response_metadata(row: AgentRunMessage) -> dict:

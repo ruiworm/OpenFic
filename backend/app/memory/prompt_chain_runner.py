@@ -15,6 +15,7 @@ from app.agent_runtime.context.processors.compress import (
     is_compress_system_prompts_enabled,
     merge_consecutive_system_dicts,
 )
+from app.core.json_safe import safe_json_loads
 from app.macro.compiler import EntryInput, PromptChainCompiler
 from app.storage.repos import task_message_repo
 from app.storage.services import prompt_chain_service
@@ -141,7 +142,12 @@ def _compact_task_history_message(
     if message.agent_id:
         payload["agent_id"] = message.agent_id
 
-    tool_calls = json.loads(message.tool_calls or "[]")
+    tool_calls = safe_json_loads(
+        message.tool_calls,
+        [],
+        context=f"prompt_chain_runner.tool_calls(tool_call_id={message.tool_call_id})",
+        expected=list,
+    )
     if isinstance(tool_calls, list) and tool_calls:
         compact_tool_calls = [
             {

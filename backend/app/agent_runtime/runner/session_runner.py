@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -56,6 +57,31 @@ _HELD_EVENT_SESSION_IDS: ContextVar[frozenset[str]] = ContextVar(
     "session_runner_held_event_session_ids",
     default=frozenset(),
 )
+
+# 已知异常 → 面向用户的可读说明。前端直接展示 agent:error 的 reason，
+# 若原样透出 Python 原始异常（如 JSONDecodeError 的 "Expecting ':' delimiter"），
+# 用户既看不懂也无法自助处理。
+_ERROR_REASON_TEMPLATES: tuple[tuple[type[BaseException], str], ...] = (
+    (
+        json.JSONDecodeError,
+        "模型返回的数据格式损坏，无法解析，本次回复已中断。请重试；若反复出现，请导出日志反馈。",
+    ),
+    (
+        UnicodeDecodeError,
+        "读取本地数据时遇到无法解码的内容，本次回复已中断。请重试；若反复出现，请导出日志反馈。",
+    ),
+)
+
+# reason 里附带原始异常文本时的截断长度，避免超长内容挤满界面
+_RAW_REASON_LIMIT = 120
+
+
+def _friendly_error_reason(exc: BaseException) -> str | None:
+    """返回已知异常对应的用户可读说明；无匹配时返回 None。"""
+    for exc_type, message in _ERROR_REASON_TEMPLATES:
+        if isinstance(exc, exc_type):
+            return message
+    return None
 
 
 def _format_utc_iso_datetime(value: datetime | str | None) -> str:
@@ -287,7 +313,14 @@ class SessionRunner:
     @staticmethod
     def _exception_reason(exc: Exception) -> str:
         reason = str(exc).strip()
-        return reason or exc.__class__.__name__
+        friendly = _friendly_error_reason(exc)
+        if friendly is None:
+            return reason or exc.__class__.__name__
+        if not reason:
+            return friendly
+        detail = reason if len(reason) <= _RAW_REASON_LIMIT else f"{reason[:_RAW_REASON_LIMIT]}..."
+        # 保留原始异常文本，便于用户反馈时定位
+        return f"{friendly}（原始错误：{detail}）"
 
     async def _handle_stream_failure(
         self,
@@ -297,6 +330,13 @@ class SessionRunner:
         error_type: Literal["persistence_failure", "runtime_failure"],
         exc: Exception,
     ) -> None:
+        # 界面只展示简短的 reason，完整堆栈必须落后端日志，否则无从定位
+        logger.opt(exception=exc).error(
+            "Agent 运行失败 | session={} error_type={} exception={}",
+            self.session_id,
+            error_type,
+            exc.__class__.__name__,
+        )
         resumable_state = None
         if graph is not None:
             try:

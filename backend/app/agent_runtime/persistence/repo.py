@@ -21,10 +21,15 @@ from app.agent_runtime.persistence.types import (
     Status,
 )
 from app.core.ids import generate_id
+from app.core.json_safe import safe_json_loads
 
 
 def _row_to_dto(row: AgentRunMessage) -> PersistedMessage:
-    """将 ORM 行转换为外部 DTO，反序列化 JSON 字段。"""
+    """将 ORM 行转换为外部 DTO，反序列化 JSON 字段。
+
+    坏数据（历史遗留或外部写入导致的非法 JSON）降级为 None / {}，
+    不抛异常 —— DTO 转换在列表接口上逐行执行，单行损坏不应让整页 500。
+    """
     return PersistedMessage(
         id=row.id,
         session_id=row.session_id,
@@ -35,7 +40,12 @@ def _row_to_dto(row: AgentRunMessage) -> PersistedMessage:
         content=row.content,
         reasoning=row.reasoning,
         reasoning_duration_ms=row.reasoning_duration_ms,
-        tool_calls=json.loads(row.tool_calls) if row.tool_calls else None,
+        tool_calls=safe_json_loads(
+            row.tool_calls,
+            None,
+            context=f"repo._row_to_dto.tool_calls(message_id={row.id})",
+            expected=list,
+        ),
         tool_call_id=row.tool_call_id,
         tool_name=row.tool_name,
         status=cast(Status, row.status),
@@ -43,7 +53,12 @@ def _row_to_dto(row: AgentRunMessage) -> PersistedMessage:
         display_channel=row.display_channel or "list",
         llm_visibility=row.llm_visibility or "visible",
         seq=row.seq,
-        metadata=json.loads(row.message_metadata or "{}"),
+        metadata=safe_json_loads(
+            row.message_metadata,
+            {},
+            context=f"repo._row_to_dto.metadata(message_id={row.id})",
+            expected=dict,
+        ),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

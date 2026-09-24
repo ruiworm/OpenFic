@@ -1420,3 +1420,38 @@ async def test_consume_next_pending_user_message_keeps_pending_when_persist_fail
     assert remaining == [("msg_pending_1", "user", "压缩后继续处理")]
     emit_pending_user_message.assert_not_awaited()
     emit_runtime_user_message.assert_not_awaited()
+
+
+def test_exception_reason_renders_known_error_readably() -> None:
+    """JSON 解析异常不应把 Python 原始报错原样甩到界面上。"""
+    import json
+
+    try:
+        json.loads('{"volume_ref": {"type": "order" "value": 1}}')
+    except json.JSONDecodeError as exc:
+        reason = SessionRunner._exception_reason(exc)
+
+    assert "数据格式损坏" in reason
+    # 原始错误保留为补充信息，便于用户反馈时定位
+    assert "delimiter" in reason
+    assert not reason.startswith("Expecting")
+
+
+def test_exception_reason_falls_back_for_unknown_error() -> None:
+    assert SessionRunner._exception_reason(RuntimeError("boom")) == "boom"
+    assert SessionRunner._exception_reason(RuntimeError()) == "RuntimeError"
+
+
+def test_exception_reason_truncates_long_raw_detail() -> None:
+    import json
+
+    class _NoisyJSONDecodeError(json.JSONDecodeError):
+        def __str__(self) -> str:
+            return "x" * 500
+
+    exc = _NoisyJSONDecodeError("boom", "", 0)
+    reason = SessionRunner._exception_reason(exc)
+
+    assert "数据格式损坏" in reason
+    assert "..." in reason
+    assert len(reason) < 300

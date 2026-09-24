@@ -14,6 +14,7 @@ from app.agent_runtime.persistence.child_runs import rollback_child_runs_for_par
 from app.agent_runtime.persistence.model import AgentRunMessage
 from app.core.editor_content_limits import validate_editor_content
 from app.core.errors import NotFoundError
+from app.core.json_safe import safe_json_loads
 from app.storage.models.chapter import Chapter
 from app.storage.models.character import Character
 from app.storage.models.commit import Commit
@@ -297,7 +298,14 @@ async def begin_user_revision(
 
     user_message = await session.get(AgentRunMessage, user_message_id)
     if user_message is not None:
-        metadata = json.loads(user_message.message_metadata or "{}")
+        # 坏 metadata 降级为 {}：这里必须保住 revision_id 的写入，
+        # 不能让一条损坏记录把整个修订流程打挂。
+        metadata = safe_json_loads(
+            user_message.message_metadata,
+            {},
+            context=f"begin_user_revision.metadata(user_message_id={user_message_id})",
+            expected=dict,
+        )
         metadata["revision_id"] = revision.id
         user_message.message_metadata = json.dumps(metadata, ensure_ascii=False)
         user_message.updated_at = datetime.now(UTC)
