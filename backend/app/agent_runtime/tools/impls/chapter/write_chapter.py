@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agent_runtime.tools.base import AgentTool
 from app.core.editor_content_limits import EditorContentLimitError, validate_editor_content
+from app.core.prose_text import collapse_blank_lines
 from app.agent_runtime.revisions import (
     current_revision_id_from_state,
     images_by_id,
@@ -21,7 +22,7 @@ from app.agent_runtime.tools.impls.chapter.diff_preview import (
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.impls._locks import keyed_lock
@@ -67,6 +68,7 @@ class WriteChapterTool(AgentTool):
         content = args.get("content")
         if not isinstance(title, str) or not isinstance(content, str):
             return None
+        content = collapse_blank_lines(content)
         try:
             validate_editor_content(content)
         except EditorContentLimitError:
@@ -96,6 +98,8 @@ class WriteChapterTool(AgentTool):
         revision_id = current_revision_id_from_state(self._state)
         if revision_id is None:
             raise ToolExecutionError("缺少当前 revision，无法执行章节写入")
+        # 落库前折叠段间空行，保证正文符合排版规范（只改换行结构，不动正文文字）
+        content = collapse_blank_lines(content)
         try:
             validate_editor_content(content)
         except EditorContentLimitError as exc:
@@ -111,15 +115,19 @@ class WriteChapterTool(AgentTool):
                 max_order = await chapter_repo.get_max_order(session, volume_id)
                 if chapter_ref is not None:
                     ref = ChapterRef.model_validate(chapter_ref)
-                    matched = await chapter_repo.get_by_volume_ref(
+                    match = await chapter_repo.get_by_volume_ref(
                         session,
                         volume_id,
                         ref_type=ref.type,
                         ref_value=ref.value,
                     )
-                    match = resolve_chapter_from_list(
-                        [matched] if matched is not None else [], ref
-                    )
+                    if match is None:
+                        raise await chapter_not_found_error(
+                            session,
+                            volume_id=volume_id,
+                            ref=ref,
+                            volume_title=volume.title,
+                        )
                     insert_order = match.order
                     chapters = await chapter_repo.list_by_volume_from_order(
                         session, volume_id, insert_order

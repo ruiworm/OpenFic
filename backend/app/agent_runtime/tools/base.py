@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, TypeAlias, cast
 from langchain_core.runnables.config import var_child_runnable_config
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,7 +181,17 @@ class AgentTool(BaseTool):
         if payload.get("denied") is True:
             return payload
 
-        preview = await self.build_interrupt_preview(args)
+        try:
+            preview = await self.build_interrupt_preview(args)
+        except Exception:
+            # 审批预览只是辅助信息，构建失败不应中断整轮对话；
+            # 真正的参数错误会在 _execute 中以工具失败的形式返回给模型自纠。
+            logger.opt(exception=True).warning(
+                "构建工具审批预览失败 tool={} tool_call_id={}",
+                self.name,
+                self.tool_call_id,
+            )
+            preview = None
         if preview is not None:
             payload["tool_result_preview"] = preview
         return payload

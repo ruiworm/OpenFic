@@ -14,7 +14,7 @@ from app.agent_runtime.tools.impls._locks import keyed_locks
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.registry import ToolRegistry
@@ -56,15 +56,19 @@ class MoveChapterToVolumeTool(AgentTool):
                 volumes, VolumeRef.model_validate(target_volume_ref)
             )
             chapter_ref_model = ChapterRef.model_validate(chapter_ref)
-            matched = await chapter_repo.get_by_volume_ref(
+            chapter = await chapter_repo.get_by_volume_ref(
                 session,
                 source_volume.id,
                 ref_type=chapter_ref_model.type,
                 ref_value=chapter_ref_model.value,
             )
-            chapter = resolve_chapter_from_list(
-                [matched] if matched is not None else [], chapter_ref_model
-            )
+            if chapter is None:
+                raise await chapter_not_found_error(
+                    session,
+                    volume_id=source_volume.id,
+                    ref=chapter_ref_model,
+                    volume_title=source_volume.title,
+                )
             source_volume_id = source_volume.id
             target_volume_id = target_volume.id
             chapter_id = chapter.id

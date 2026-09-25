@@ -17,7 +17,7 @@ from app.agent_runtime.tools.impls.chapter.diff_preview import (
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.impls._locks import keyed_lock
@@ -51,13 +51,19 @@ class DeleteChapterTool(AgentTool):
                 await volume_repo.list_by_project(session, self.project_id),
                 volume_ref_model,
             )
-            matched = await chapter_repo.get_by_volume_ref(
+            match = await chapter_repo.get_by_volume_ref(
                 session,
                 volume.id,
                 ref_type=ref.type,
                 ref_value=ref.value,
             )
-            match = resolve_chapter_from_list([matched] if matched is not None else [], ref)
+            if match is None:
+                raise await chapter_not_found_error(
+                    session,
+                    volume_id=volume.id,
+                    ref=ref,
+                    volume_title=volume.title,
+                )
             volume_id = volume.id
             chapter_id = match.id
             await session.rollback()

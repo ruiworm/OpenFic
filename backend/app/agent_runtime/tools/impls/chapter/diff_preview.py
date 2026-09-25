@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.text_match import fuzzy_replace
+from app.core.prose_text import collapse_blank_lines
 from app.storage.models.chapter import Chapter
 from app.storage.models.volume import Volume
 from app.storage.repos import chapter_repo, volume_repo
@@ -177,7 +178,8 @@ async def build_edit_chapter_tool_result_preview(
         )
         if replace_result is None:
             return None
-        updated_content = replace_result.new_content
+        # 与实际写入保持一致：审批预览里也要展示折叠段间空行后的结果
+        updated_content = collapse_blank_lines(replace_result.new_content)
 
     after = ChapterPreviewData(
         id=before.id,
@@ -238,13 +240,14 @@ async def _resolve_write_order(
         return max_order + 1
 
     ref = ChapterRef.model_validate(chapter_ref)
-    matched = await chapter_repo.get_by_volume_ref(
+    match = await chapter_repo.get_by_volume_ref(
         session,
         volume_id,
         ref_type=ref.type,
         ref_value=ref.value,
     )
-    match = resolve_chapter_from_list([matched] if matched is not None else [], ref)
+    if match is None:
+        raise await chapter_not_found_error(session, volume_id=volume_id, ref=ref)
     return int(match.order)
 
 

@@ -6,7 +6,7 @@ from app.agent_runtime.tools.base import AgentTool
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.registry import ToolRegistry
@@ -54,13 +54,19 @@ class ReadChapterTool(AgentTool):
         try:
             volumes = await volume_repo.list_by_project(session, self.project_id)
             resolved_volume = resolve_volume_from_list(volumes, volume)
-            matched = await chapter_repo.get_by_volume_ref(
+            match = await chapter_repo.get_by_volume_ref(
                 session,
                 resolved_volume.id,
                 ref_type=ref.type,
                 ref_value=ref.value,
             )
-            match = resolve_chapter_from_list([matched] if matched is not None else [], ref)
+            if match is None:
+                raise await chapter_not_found_error(
+                    session,
+                    volume_id=resolved_volume.id,
+                    ref=ref,
+                    volume_title=resolved_volume.title,
+                )
             return ReadChapterOutput(
                 order=match.order,
                 title=match.title,

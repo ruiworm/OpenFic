@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.agent_runtime.tools.base import AgentTool
 from app.core.editor_content_limits import EditorContentLimitError, validate_editor_content
+from app.core.prose_text import collapse_blank_lines
 from app.agent_runtime.revisions import (
     current_revision_id_from_state,
     images_by_id,
@@ -22,7 +23,7 @@ from app.agent_runtime.tools.impls.chapter.diff_preview import (
 from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
-    resolve_chapter_from_list,
+    chapter_not_found_error,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.impls._locks import keyed_lock
@@ -136,13 +137,19 @@ class EditChapterTool(AgentTool):
                     await volume_repo.list_by_project(session, self.project_id),
                     volume_ref_model,
                 )
-                matched = await chapter_repo.get_by_volume_ref(
+                match = await chapter_repo.get_by_volume_ref(
                     session,
                     volume.id,
                     ref_type=ref.type,
                     ref_value=ref.value,
                 )
-                match = resolve_chapter_from_list([matched] if matched is not None else [], ref)
+                if match is None:
+                    raise await chapter_not_found_error(
+                        session,
+                        volume_id=volume.id,
+                        ref=ref,
+                        volume_title=volume.title,
+                    )
                 before = images_by_id([match])
                 before_match = chapter_preview_from_object(match)
                 if new_title is not None:
@@ -153,7 +160,8 @@ class EditChapterTool(AgentTool):
                     )
                     if replace_result is None:
                         raise ToolExecutionError("未在章节内容中找到要替换的文本")
-                    match.content = replace_result.new_content
+                    # 落库前折叠段间空行（只改换行结构，不动正文文字）
+                    match.content = collapse_blank_lines(replace_result.new_content)
                     try:
                         validate_editor_content(match.content)
                     except EditorContentLimitError as exc:
