@@ -7,6 +7,7 @@ from app.agent_runtime.tools.impls.chapter.refs import (
     ChapterRef,
     VolumeRef,
     chapter_not_found_error,
+    order_title_mismatch_notice,
     resolve_volume_from_list,
 )
 from app.agent_runtime.tools.registry import ToolRegistry
@@ -24,6 +25,7 @@ class ReadChapterOutput(BaseModel):
     title: str
     content: str
     word_count: int
+    notice: str | None = None
 
 
 def format_chapter_content_with_line_numbers(content: str) -> str:
@@ -59,6 +61,9 @@ class ReadChapterTool(AgentTool):
                 resolved_volume.id,
                 ref_type=ref.type,
                 ref_value=ref.value,
+                # 读取是只读操作，允许「精确 → 唯一前缀」，
+                # 用户常只说「第十二章」而省略标题后半段
+                allow_title_prefix=True,
             )
             if match is None:
                 raise await chapter_not_found_error(
@@ -67,11 +72,19 @@ class ReadChapterTool(AgentTool):
                     ref=ref,
                     volume_title=resolved_volume.title,
                 )
+            notice = (
+                await order_title_mismatch_notice(
+                    session, volume_id=resolved_volume.id, chapter=match
+                )
+                if ref.type == "order"
+                else None
+            )
             return ReadChapterOutput(
                 order=match.order,
                 title=match.title,
                 content=format_chapter_content_with_line_numbers(match.content),
                 word_count=match.word_count,
-            ).model_dump_json()
+                notice=notice,
+            ).model_dump_json(exclude_none=True)
         finally:
             await session.close()

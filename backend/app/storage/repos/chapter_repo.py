@@ -154,14 +154,26 @@ async def list_metadata_by_project(
     return list(result.scalars().all())
 
 
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符，避免标题里的 % / _ 被当成模式。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def get_by_volume_ref(
     session: AsyncSession,
     volume_id: str,
     *,
     ref_type: Literal["order", "title"],
     ref_value: int | str,
+    allow_title_prefix: bool = False,
 ) -> Chapter | None:
-    """按卷内序号或标题获取单个章节。"""
+    """按卷内序号或标题获取单个章节。
+
+    ``allow_title_prefix`` 为真时，标题精确匹配未命中则再按前缀试一次，
+    且**只有唯一命中才返回**、多命中一律当作未找到（交由调用方报"未找到"并列出候选）。
+    存在的理由：用户和模型常只说「第十二章」而省略标题后半段，精确匹配会直接找不到。
+    这种放宽**只对只读入口放开**，避免删/改/移动这类写操作误伤到别的章节。
+    """
     stmt = select(Chapter).where(col(Chapter.volume_id) == volume_id)
     if ref_type == "order":
         stmt = stmt.where(col(Chapter.order) == int(ref_value))
@@ -170,7 +182,22 @@ async def get_by_volume_ref(
             col(Chapter.order).asc()
         )
     result = await session.execute(stmt.limit(1))
-    return result.scalar_one_or_none()
+    match = result.scalar_one_or_none()
+    if match is not None or not allow_title_prefix or ref_type != "title":
+        return match
+
+    prefix = str(ref_value).strip()
+    if not prefix:
+        return None
+    candidates = await session.execute(
+        select(Chapter)
+        .where(col(Chapter.volume_id) == volume_id)
+        .where(col(Chapter.title).like(f"{_escape_like(prefix)}%", escape="\\"))
+        .order_by(col(Chapter.order).asc())
+        .limit(2)
+    )
+    rows = list(candidates.scalars().all())
+    return rows[0] if len(rows) == 1 else None
 
 
 async def list_index_source_by_project(

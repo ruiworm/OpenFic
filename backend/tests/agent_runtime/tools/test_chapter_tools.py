@@ -180,8 +180,13 @@ async def test_read_chapter_resolves_chapter_inside_volume() -> None:
         "word_count": 6,
     }
     list_by_volume.assert_not_awaited()
+    # 读取入口允许"精确→唯一前缀"，且本卷编号自洽时不塞 notice 字段
     get_by_volume_ref.assert_awaited_once_with(
-        mock_session, "vol-1", ref_type="order", ref_value=2
+        mock_session,
+        "vol-1",
+        ref_type="order",
+        ref_value=2,
+        allow_title_prefix=True,
     )
 
 

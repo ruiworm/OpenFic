@@ -260,6 +260,10 @@ async def test_chapter_not_found_error_handles_empty_volume() -> None:
     with patch(
         "app.storage.repos.chapter_repo.list_metadata_by_volume",
         AsyncMock(return_value=[]),
+    ), patch(
+        # 卷信息取不到时不做"同名卷"提示，保持原有文案
+        "app.storage.repos.volume_repo.get_by_id",
+        AsyncMock(return_value=None),
     ):
         error = await chapter_not_found_error(
             AsyncMock(),
