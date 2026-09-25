@@ -7,6 +7,7 @@ from typing import Any, cast
 from json_repair import loads as repair_json_loads
 
 from app.agent_runtime.tools.errors import ToolFailure
+from app.core.tool_args import unwrap_tool_arg_envelope
 
 MALFORMED_TOOL_CALL_MARKER = "__malformed_tool_call__"
 MALFORMED_TOOL_CALL_RAW_ARGS = "__raw_args__"
@@ -15,10 +16,11 @@ MALFORMED_TOOL_CALL_MESSAGE = "工具参数 JSON 无法解析，未执行工具�
 
 
 def parse_tool_args(args_raw: Any) -> dict[str, Any] | None:
+    """把工具参数原文解析成字典，并剥离模型多套的 arguments 外壳。"""
     if args_raw is None:
         return {}
     if isinstance(args_raw, Mapping):
-        return dict(args_raw)
+        return unwrap_tool_arg_envelope(args_raw)
     if not isinstance(args_raw, str):
         return None
     if not args_raw.strip():
@@ -28,7 +30,9 @@ def parse_tool_args(args_raw: Any) -> dict[str, Any] | None:
         parsed = repair_json_loads(args_raw)
     except Exception:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, Mapping):
+        return None
+    return unwrap_tool_arg_envelope(parsed)
 
 
 def synthesize_tool_call_id(

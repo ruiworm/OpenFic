@@ -24,6 +24,7 @@ from langchain_core.tools import BaseTool
 from loguru import logger
 
 from app.core.errors import LLMTimeoutError
+from app.core.tool_args import unwrap_tool_arg_envelope
 from app.models.clients.deepseek_payload import patch_deepseek_reasoning_payload
 from app.models.clients.model_factory import ModelConfig, ReasoningEffort, create_chat_model
 
@@ -474,7 +475,7 @@ class LLMClient:
             try:
                 parsed = json.loads(candidate)
                 if isinstance(parsed, dict):
-                    return parsed
+                    return unwrap_tool_arg_envelope(parsed)
             except json.JSONDecodeError:
                 continue
         return {"_raw": args_raw}
@@ -487,7 +488,7 @@ class LLMClient:
                 repaired = cls._parse_tool_args(raw_args)
                 if "_raw" not in repaired:
                     return repaired
-            return args
+            return unwrap_tool_arg_envelope(args)
         if isinstance(args, str) and args.strip():
             return cls._parse_tool_args(args)
         return {}

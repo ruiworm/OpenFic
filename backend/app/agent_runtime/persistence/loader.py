@@ -1,6 +1,7 @@
 """DB 历史 → ReAct 子图初始 messages。"""
 
 import json
+from collections.abc import Mapping
 from typing import Literal, cast
 
 from langchain_core.messages import (
@@ -19,6 +20,7 @@ from app.agent_runtime.persistence.model import AgentRunMessage
 from app.agent_runtime.context.processors.filter import filter_invalid
 from app.agent_runtime.context.types import ContextMessage
 from app.core.json_safe import safe_json_loads
+from app.core.tool_args import unwrap_tool_arg_envelope
 
 
 def _is_llm_history_message(row: AgentRunMessage) -> bool:
@@ -30,15 +32,27 @@ def _tool_calls(row: AgentRunMessage) -> list[dict] | None:
 
     tool_calls 解析失败时降级为 None（该条消息按无工具调用处理），
     不抛异常中断整段历史加载 —— 否则一条坏记录会让该会话每次续聊都失败。
+
+    回放时顺带剥离模型多套的 `arguments` 外壳：历史里已经落库的带壳参数会被
+    原样喂回模型，模型看到自己的历史输出会继续照着写（实测已出现两层嵌套）。
+    这里只在内存中归一化，不改写任何已落库的数据。
     """
     if not row.tool_calls:
         return None
-    return safe_json_loads(
+    parsed = safe_json_loads(
         row.tool_calls,
         None,
         context=f"load_history._tool_calls(message_id={row.id})",
         expected=list,
     )
+    if not isinstance(parsed, list):
+        return parsed
+    normalized: list[dict] = []
+    for tool_call in parsed:
+        if isinstance(tool_call, dict) and isinstance(tool_call.get("args"), Mapping):
+            tool_call = {**tool_call, "args": unwrap_tool_arg_envelope(tool_call["args"])}
+        normalized.append(tool_call)
+    return normalized
 
 
 def _response_metadata(row: AgentRunMessage) -> dict:
