@@ -219,13 +219,13 @@ async def _similar_volume_hint(
         if chapter_count == 0:
             continue
         candidates.append(
-            f"卷「{volume.title}」（order={volume.order}，共 {chapter_count} 章，"
+            f"「{volume.title}」（order={volume.order}，共 {chapter_count} 章，"
             f"volume_ref={{'type': 'title', 'value': '{volume.title}'}}）"
         )
     if not candidates:
         return None
     return (
-        "注意：项目中还有标题相近的卷 "
+        "注意：项目中还有标题相近的卷："
         + "、".join(candidates)
         + "；你可能是定位到了空占位卷，若目标为它请改用上面的 volume_ref"
     )
@@ -298,11 +298,10 @@ async def order_title_mismatch_notice(
         else f"本卷里没有标题编号为 {chapter.order} 的章节"
     )
     return (
-        f"注意：order={chapter.order} 命中的章节标题是「{chapter.title}」，"
-        f"标题里的编号（{number}）与 order 不一致；{where}。"
-        "order 是卷内从 1 连续编号的序号，删改章节后可能与标题编号错开。"
-        f"按标题定位请传 chapter_ref={{'type': 'title', 'value': '{chapter.title}'}}；"
-        "按 order 定位请先 list_chapters 核对再读。"
+        f"注意：order={chapter.order} 命中「{chapter.title}」，"
+        f"标题里的编号（{number}）与 order 不一致——{where}。"
+        "本卷 order 与标题编号已错开，请以 list_chapters 的 order 为准；"
+        f"按标题读请传 chapter_ref={{'type': 'title', 'value': '{chapter.title}'}}"
     )
 
 

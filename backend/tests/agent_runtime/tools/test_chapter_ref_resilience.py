@@ -145,6 +145,8 @@ async def test_empty_volume_hint_points_to_similar_volume() -> None:
     assert "第一卷 显形" in hint
     assert "order=2" in hint
     assert "共 2 章" in hint
+    # 提示语本身也要读得通：别写成"标题相近的卷 卷「X」"
+    assert "标题相近的卷：「第一卷 显形」" in hint
     # 必须给出可直接使用的 volume_ref，模型才能一步改对
     assert "'type': 'title', 'value': '第一卷 显形'" in hint
 
