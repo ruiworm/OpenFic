@@ -146,7 +146,10 @@ jobs:
           path: backend/dist/*.whl
 
   # ---------------------------------------------------------------- pypi
+  # 发布 openfic 到 PyPI（trusted publisher 一直未配置，每次必失败，从未产出过包）。
+  # 买家不用 PyPI 安装，且无任何 job 依赖它；需要时删掉下面这行 `if` 即可恢复。
   pypi:
+    if: ${{ false }}
     needs: [context, build-frontend]
     runs-on: ubuntu-latest
     environment: pypi
@@ -222,7 +225,11 @@ jobs:
           packages-dir: backend/dist
 
   # ---------------------------------------------------------------- docker
+  # 服务端多架构镜像（ghcr.io），买家安装的桌面端用不到它，且 buildx 构建很吃 CI 时间。
+  # 它不参与 publish-release（发布 job 只收集 desktop-* 与 windows-update-*），
+  # 因此停用不影响发版；需要镜像时删掉下面这行 `if` 即可恢复。
   docker:
+    if: ${{ false }}
     needs: [context]
     strategy:
       fail-fast: false
@@ -264,6 +271,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.suffix }}
 
   docker-manifest:
+    # 依赖 docker，随之停用（恢复时与 docker 一起删掉 `if` 行）。
+    if: ${{ false }}
     needs: [context, docker]
     runs-on: ubuntu-latest
     steps:
@@ -298,19 +307,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 只打包买家实际会安装的三个平台：Windows x64 + macOS(x64/arm64)。
+        # 其余平台（Windows arm64、Linux x64/arm64）已停用，如需恢复取消下方注释即可；
+        # prepare-windows-update.mjs 会按实际产物自动适配架构，无需同步修改。
         include:
           - os: windows-latest
             electron_args: '--win --x64'
             artifact_name: windows-update-x86_64
-          - os: windows-11-arm
-            electron_args: '--win --arm64'
-            artifact_name: windows-update-aarch64
-          - os: ubuntu-24.04
-            electron_args: '--linux --x64'
-            artifact_name: desktop-linux-x86_64
-          - os: ubuntu-24.04-arm
-            electron_args: '--linux --arm64'
-            artifact_name: desktop-linux-aarch64
+          # - os: windows-11-arm
+          #   electron_args: '--win --arm64'
+          #   artifact_name: windows-update-aarch64
+          # - os: ubuntu-24.04
+          #   electron_args: '--linux --x64'
+          #   artifact_name: desktop-linux-x86_64
+          # - os: ubuntu-24.04-arm
+          #   electron_args: '--linux --arm64'
+          #   artifact_name: desktop-linux-aarch64
           - os: macos-15-intel
             electron_args: '--mac --x64'
             artifact_name: desktop-mac-x86_64
