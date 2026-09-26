@@ -130,7 +130,7 @@ def test_create_chat_model_gemini_compatible_uses_custom_native_client():
     assert model.base_url == {"api_endpoint": "https://gateway.example/gemini"}
     assert model.api_version == "v1beta"
     assert model.additional_headers["X-Provider-Token"] == "custom-token"
-    assert model.additional_headers["User-Agent"].startswith("OpenFic/")
+    assert model.additional_headers["User-Agent"].startswith("NovelForge/")
     assert model.thinking_level == "high"
     assert model.max_retries == 0
 
@@ -157,8 +157,8 @@ def test_create_chat_model_custom_providers_send_custom_headers():
 
     assert openai_model.default_headers["X-Provider-Token"] == "custom-token"
     assert anthropic_model.default_headers["X-Provider-Token"] == "custom-token"
-    assert openai_model.default_headers["User-Agent"].startswith("OpenFic/")
-    assert anthropic_model.default_headers["User-Agent"].startswith("OpenFic/")
+    assert openai_model.default_headers["User-Agent"].startswith("NovelForge/")
+    assert anthropic_model.default_headers["User-Agent"].startswith("NovelForge/")
 
 
 def test_create_chat_model_adds_versioned_application_user_agent(
@@ -210,7 +210,7 @@ def test_create_chat_model_adds_opencode_headers_for_openai_compatible_endpoint(
         )
     )
 
-    assert model.default_headers["User-Agent"] == "OpenFic/0.11.1"
+    assert model.default_headers["User-Agent"].startswith("NovelForge/")
     assert model.default_headers["x-opencode-session"] == "agent-session-1"
 
 
@@ -251,7 +251,7 @@ def test_create_chat_model_adds_application_user_agent_to_non_opencode_provider(
         )
     )
 
-    assert model.default_headers["User-Agent"].startswith("OpenFic/")
+    assert model.default_headers["User-Agent"].startswith("NovelForge/")
 
 
 def test_create_chat_model_with_temperature():
