@@ -1,3 +1,4 @@
+import difflib
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -150,6 +151,24 @@ async def _get_project_world_info(session, project_id: str):
     return world_info
 
 
+_MAX_LISTED_NAMES = 12
+
+
+def _entry_not_found_hint(entries: list[WorldInfoEntry], title: str) -> str:
+    """世界书条目标题精确匹配失败时，列出已有条目标题并提示最相近项。"""
+    names = [entry.name for entry in entries]
+    if not names:
+        return f"世界书条目不存在: {title}（当前世界书还没有任何条目，可先用 list_world_entries 确认）"
+    listed = "、".join(f"「{n}」" for n in names[:_MAX_LISTED_NAMES])
+    if len(names) > _MAX_LISTED_NAMES:
+        listed += f" …（共 {len(names)} 个）"
+    message = f"世界书条目不存在: {title}。当前世界书共有 {len(names)} 个条目：{listed}"
+    closest = difflib.get_close_matches(title, names, n=2, cutoff=0.4)
+    if closest:
+        message += f"；最相近的是 {'、'.join(f'「{c}」' for c in closest)}，若目标是它请改用该标题"
+    return message
+
+
 async def _resolve_entry_by_title(session, world_info_id: str, title: str) -> WorldInfoEntry:
     normalized_title = title.strip()
     if not normalized_title:
@@ -157,7 +176,7 @@ async def _resolve_entry_by_title(session, world_info_id: str, title: str) -> Wo
     entries = await world_info_entry_repo.list_all_by_world_info(session, world_info_id)
     matches = [entry for entry in entries if entry.name == normalized_title]
     if not matches:
-        raise ToolExecutionError(f"世界书条目不存在: {normalized_title}")
+        raise ToolExecutionError(_entry_not_found_hint(entries, normalized_title))
     if len(matches) > 1:
         raise ToolExecutionError(f"世界书条目标题不唯一: {normalized_title}")
     return matches[0]

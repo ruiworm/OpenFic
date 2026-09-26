@@ -1,3 +1,4 @@
+import difflib
 import json
 from collections import deque
 from dataclasses import dataclass
@@ -217,6 +218,24 @@ async def _list_project_characters(session, project_id: str) -> list[Character]:
     return await character_repo.list_all_by_project(session, project_id)
 
 
+_MAX_LISTED_NAMES = 12
+
+
+def _character_not_found_hint(characters: list[Character], name: str) -> str:
+    """角色名精确匹配失败时，列出项目内已有角色并提示最相近项，供模型自行纠正。"""
+    names = [character.name for character in characters]
+    if not names:
+        return f"角色不存在: {name}（当前项目还没有任何角色，可先用 list_characters 确认）"
+    listed = "、".join(f"「{n}」" for n in names[:_MAX_LISTED_NAMES])
+    if len(names) > _MAX_LISTED_NAMES:
+        listed += f" …（共 {len(names)} 个）"
+    message = f"角色不存在: {name}。当前项目共有 {len(names)} 个角色：{listed}"
+    closest = difflib.get_close_matches(name, names, n=2, cutoff=0.4)
+    if closest:
+        message += f"；最相近的是 {'、'.join(f'「{c}」' for c in closest)}，若目标是它请改用该名称"
+    return message
+
+
 async def _resolve_character_by_name(session, project_id: str, name: str) -> Character:
     normalized_name = name.strip()
     if not normalized_name:
@@ -224,7 +243,7 @@ async def _resolve_character_by_name(session, project_id: str, name: str) -> Cha
     characters = await _list_project_characters(session, project_id)
     matches = [character for character in characters if character.name == normalized_name]
     if not matches:
-        raise ToolExecutionError(f"角色不存在: {normalized_name}")
+        raise ToolExecutionError(_character_not_found_hint(characters, normalized_name))
     if len(matches) > 1:
         raise ToolExecutionError(f"角色名称不唯一: {normalized_name}")
     return matches[0]
