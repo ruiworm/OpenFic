@@ -36,20 +36,20 @@ win:
   artifactName: NovelForge-${version}-win-${arch}.${ext}
   target:
     - nsis
-    - zip
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   include: build/installer.nsh
   artifactName: NovelForge-${version}-win-${arch}-setup.${ext}
+  # 不生成 .blockmap：差量更新退化为全量下载，换取 Release 附件精简
+  differentialPackage: false
 
 mac:
   icon: resources/icons/512x512.png
   artifactName: NovelForge-${version}-mac-${arch}.${ext}
   target:
     - dmg
-    - zip
   category: public.app-category.productivity
   identity: null
 
