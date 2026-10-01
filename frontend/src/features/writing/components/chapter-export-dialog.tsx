@@ -25,8 +25,9 @@ import {
   fetchProject,
 } from "@/lib/api-client";
 import { subscribeBackgroundEvents } from "@/lib/background-socket";
-import type { ChapterExport } from "@/lib/chapter-export.types";
+import type { ChapterExport, ChapterExportFormat } from "@/lib/chapter-export.types";
 import type { Chapter, VolumeWithChapters } from "@/lib/chapter.types";
+import { openDesktopFolder } from "@/lib/desktop-appearance-bridge";
 import { getSocketConnectionStatus, subscribeSocketConnectionStatus } from "@/lib/socket-client";
 
 import {
@@ -76,7 +77,11 @@ function toCheckboxValue(state: ChapterExportCheckState): boolean | "indetermina
   return state === "checked";
 }
 
-function triggerExportDownload(exportJob: ChapterExport): void {
+function triggerExportAction(exportJob: ChapterExport): void {
+  if (exportJob.format === "per_chapter" && exportJob.exportDir) {
+    openDesktopFolder(exportJob.exportDir);
+    return;
+  }
   if (!exportJob.downloadUrl) return;
   const anchor = document.createElement("a");
   anchor.href = exportJob.downloadUrl;
@@ -106,6 +111,7 @@ export function ChapterExportDialog({
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [step, setStep] = useState<ChapterExportStep>("selecting");
   const [exportJob, setExportJob] = useState<ChapterExport | null>(null);
+  const [format, setFormat] = useState<ChapterExportFormat>("single");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -258,7 +264,7 @@ export function ChapterExportDialog({
       setIsCancelling(false);
       if (downloadedExportIdRef.current !== exportJob.id) {
         downloadedExportIdRef.current = exportJob.id;
-        triggerExportDownload(exportJob);
+        triggerExportAction(exportJob);
       }
       return;
     }
@@ -319,6 +325,7 @@ export function ChapterExportDialog({
         includedChapterIds: [...selection.includedChapterIds],
         excludedChapterIds: [...selection.excludedChapterIds],
         localDate: getLocalDate(),
+        format,
       });
       setExportJob(nextExport);
       setStep("exporting");
@@ -655,15 +662,33 @@ export function ChapterExportDialog({
           className="chapter-export-footer"
         >
           {step === "selecting" ? (
-            <Text
-              size="2"
-              color="gray"
+            <Flex
+              align="center"
+              gap="3"
+              wrap="wrap"
             >
-              {t(`${EXPORT_I18N_KEY}.selectionInfo`, {
-                chapters: selectedChapterIds.size,
-                words: selectedWordCount,
-              })}
-            </Text>
+              <Text
+                size="2"
+                color="gray"
+              >
+                {t(`${EXPORT_I18N_KEY}.selectionInfo`, {
+                  chapters: selectedChapterIds.size,
+                  words: selectedWordCount,
+                })}
+              </Text>
+              <SegmentedControl.Root
+                value={format}
+                onValueChange={(value) => setFormat(value as ChapterExportFormat)}
+                size="1"
+              >
+                <SegmentedControl.Item value="single">
+                  {t(`${EXPORT_I18N_KEY}.formatSingle`)}
+                </SegmentedControl.Item>
+                <SegmentedControl.Item value="per_chapter">
+                  {t(`${EXPORT_I18N_KEY}.formatPerChapter`)}
+                </SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </Flex>
           ) : (
             <span />
           )}
@@ -707,9 +732,11 @@ export function ChapterExportDialog({
                 >
                   {t("common.close")}
                 </Button>
-                <Button onClick={() => triggerExportDownload(exportJob)}>
+                <Button onClick={() => triggerExportAction(exportJob)}>
                   <Download size={16} />
-                  {t(`${EXPORT_I18N_KEY}.downloadAgain`)}
+                  {exportJob.format === "per_chapter"
+                    ? t(`${EXPORT_I18N_KEY}.openFolder`)
+                    : t(`${EXPORT_I18N_KEY}.downloadAgain`)}
                 </Button>
               </>
             )}

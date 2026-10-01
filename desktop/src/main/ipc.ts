@@ -712,4 +712,9 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(IpcChannels.openProjectHome, () => shell.openExternal(PROJECT_HOME_URL));
   ipcMain.handle(IpcChannels.reportBug, () => shell.openExternal(BUG_REPORT_URL));
   ipcMain.handle(IpcChannels.suggestFeature, () => shell.openExternal(FEATURE_SUGGESTION_URL));
+  ipcMain.handle(IpcChannels.openFolder, async (_event, folderPath: unknown) => {
+    if (typeof folderPath !== "string" || !folderPath) return false;
+    const error = await shell.openPath(folderPath);
+    return error === "";
+  });
 }

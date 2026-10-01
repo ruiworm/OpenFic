@@ -66,4 +66,7 @@ contextBridge.exposeInMainWorld("openficDesktopHost", {
   publishSocketDiagnostic: (payload: unknown): void => {
     ipcRenderer.sendToHost("openfic:socket-diagnostic", payload);
   },
+  openFolder: (folderPath: unknown): void => {
+    ipcRenderer.sendToHost("openfic:open-folder", folderPath);
+  },
 });

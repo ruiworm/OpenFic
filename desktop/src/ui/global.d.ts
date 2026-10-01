@@ -36,6 +36,7 @@ declare global {
       selectDirectory: () => Promise<string | null>;
       selectSaveFile: () => Promise<string | null>;
       selectOpenFile: () => Promise<string | null>;
+      openFolder: (folderPath: string) => Promise<boolean>;
       getDefaultDataDir: () => Promise<string>;
       getDataInfo: (instanceId: string) => Promise<DataInfo>;
       inspectDataDir: (dataDir: string, installDir?: string) => Promise<InspectDataDirResult>;

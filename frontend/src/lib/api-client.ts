@@ -213,6 +213,7 @@ function transformChapterExport(raw: Record<string, unknown>): ChapterExport {
     status: raw.status as string,
     filename: raw.filename as string,
     mode: raw.mode as ChapterExport["mode"],
+    format: (raw.format === "per_chapter" ? "per_chapter" : "single") as ChapterExport["format"],
     volumeCount: Number(raw.volume_count ?? 0),
     chapterCount: Number(raw.chapter_count ?? 0),
     wordCount: Number(raw.word_count ?? 0),
@@ -224,6 +225,7 @@ function transformChapterExport(raw: Record<string, unknown>): ChapterExport {
     stage: typeof raw.stage === "string" ? raw.stage : null,
     chapterTitle: typeof raw.chapter_title === "string" ? raw.chapter_title : null,
     expiresAt: typeof raw.expires_at === "string" ? raw.expires_at : null,
+    exportDir: typeof raw.export_dir === "string" ? raw.export_dir : null,
     downloadUrl: resolveBackendUrl(raw.download_url as string | null | undefined),
     errorMessage: typeof raw.error_message === "string" ? raw.error_message : null,
   };
@@ -238,6 +240,7 @@ export async function createChapterExport(
     included_chapter_ids: data.includedChapterIds,
     excluded_chapter_ids: data.excludedChapterIds,
     local_date: data.localDate,
+    format: data.format,
   });
   return transformChapterExport(response.data);
 }

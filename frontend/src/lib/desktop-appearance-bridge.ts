@@ -32,6 +32,7 @@ declare global {
       publishAppearance: (payload: DesktopAppearancePayload) => void;
       publishLanguage: (language: LanguageCode) => void;
       publishSocketDiagnostic: (payload: SocketDiagnosticPayload) => void;
+      openFolder: (folderPath: string) => void;
     };
   }
 }
@@ -46,4 +47,8 @@ export function publishDesktopLanguage(language: LanguageCode): void {
 
 export function publishSocketDiagnostic(payload: SocketDiagnosticPayload): void {
   window.openficDesktopHost?.publishSocketDiagnostic?.(payload);
+}
+
+export function openDesktopFolder(folderPath: string): void {
+  window.openficDesktopHost?.openFolder(folderPath);
 }

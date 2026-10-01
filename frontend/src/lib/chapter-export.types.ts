@@ -1,8 +1,11 @@
+export type ChapterExportFormat = "single" | "per_chapter";
+
 export interface ChapterExportCreate {
   selectedVolumeIds: string[];
   includedChapterIds: string[];
   excludedChapterIds: string[];
   localDate: string;
+  format: ChapterExportFormat;
 }
 
 export interface ChapterExport {
@@ -10,6 +13,7 @@ export interface ChapterExport {
   status: string;
   filename: string;
   mode: "chapters" | "volumes";
+  format: ChapterExportFormat;
   volumeCount: number;
   chapterCount: number;
   wordCount: number;
@@ -19,6 +23,7 @@ export interface ChapterExport {
   stage: string | null;
   chapterTitle: string | null;
   expiresAt: string | null;
+  exportDir: string | null;
   downloadUrl: string | null;
   errorMessage: string | null;
 }

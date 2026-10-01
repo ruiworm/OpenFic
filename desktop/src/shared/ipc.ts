@@ -51,6 +51,7 @@ export const IpcChannels = {
   dataProgress: "data:progress",
   selectSaveFile: "dialog:select-save-file",
   selectOpenFile: "dialog:select-open-file",
+  openFolder: "shell:open-folder",
 } as const;
 
 export type SetupStep =

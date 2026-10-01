@@ -35,6 +35,7 @@ async def create_chapter_export(
             included_chapter_ids=data.included_chapter_ids,
             excluded_chapter_ids=data.excluded_chapter_ids,
             local_date=data.local_date.isoformat(),
+            format=data.format,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -101,11 +102,17 @@ async def download_chapter_export(
     job = await _get_export_job(session, project_id, job_id)
     if not chapter_export_service.is_export_download_available(job):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="导出文件不可用或已过期")
-    _part_path, output_path = chapter_export_service.export_file_paths(job.id)
+    summary = chapter_export_service.get_export_summary(job)
+    if summary.get("format") == "per_chapter":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该导出为文件夹结构，请直接打开所在文件夹",
+        )
+    _part_path, output_path = chapter_export_service.export_file_paths(job.id, "single")
     return FileResponse(
         output_path,
         media_type="text/plain; charset=utf-8",
-        filename=str(chapter_export_service.get_export_summary(job)["filename"]),
+        filename=str(summary["filename"]),
     )
 
 
@@ -123,7 +130,7 @@ async def _get_export_job(session: AsyncSession, project_id: str, job_id: str):
 
 def _to_response(job) -> ChapterExportResponse:
     summary = chapter_export_service.get_export_summary(job)
-    if chapter_export_service.is_export_download_available(job):
+    if summary.get("format") != "per_chapter" and chapter_export_service.is_export_download_available(job):
         summary["download_url"] = (
             f"/api/v1/projects/{job.subject_id}/chapter-exports/{job.id}/download"
         )

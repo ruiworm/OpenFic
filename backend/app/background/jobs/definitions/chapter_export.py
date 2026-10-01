@@ -29,6 +29,7 @@ class ChapterExportInput(BaseModel):
     project_id: str
     filename: str
     mode: str
+    format: str = "single"
     chapters: list[ChapterExportChapterInput] = Field(min_length=1)
     volumes: list[ChapterExportVolumeInput]
     chapter_count: int
@@ -38,10 +39,12 @@ class ChapterExportInput(BaseModel):
 
 class ChapterExportResult(BaseModel):
     filename: str
+    format: str = "single"
     volume_count: int
     chapter_count: int
     word_count: int
     expires_at: str
+    export_dir: str | None = None
 
 
 async def handle_chapter_export(context: JobContext) -> dict[str, Any]:

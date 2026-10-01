@@ -101,6 +101,8 @@ const desktopApi = {
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.selectDirectory),
   selectSaveFile: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.selectSaveFile),
   selectOpenFile: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.selectOpenFile),
+  openFolder: (folderPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.openFolder, folderPath),
   getDefaultDataDir: (): Promise<string> => ipcRenderer.invoke(IpcChannels.getDefaultDataDir),
   getDataInfo: (instanceId: string): Promise<DataInfo> =>
     ipcRenderer.invoke(IpcChannels.getDataInfo, { instanceId } satisfies GetDataInfoRequest),

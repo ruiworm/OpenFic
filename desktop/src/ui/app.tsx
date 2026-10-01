@@ -345,6 +345,10 @@ export function App() {
         writeFrontendDiagnostic(formatSocketDiagnostic(payload));
         return;
       }
+      if (channel === "openfic:open-folder" && typeof payload === "string" && payload) {
+        void window.openficDesktop.openFolder(payload);
+        return;
+      }
       if (channel === "openfic:zoom-factor" && isZoomFactor(payload)) {
         void window.openficDesktop.saveZoomFactor(payload);
         return;

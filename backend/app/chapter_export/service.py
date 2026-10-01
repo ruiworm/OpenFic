@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import os
 from pathlib import Path
 import re
+import shutil
 from typing import Iterable
 
 import aiofiles
@@ -80,6 +81,7 @@ class ChapterExportPlan:
     mode: str
     chapters: list[ExportChapter]
     volumes: list[ExportVolume]
+    format: str = "single"
 
     @property
     def chapter_ids(self) -> list[str]:
@@ -102,6 +104,7 @@ class ChapterExportPlan:
             "project_id": self.project_id,
             "filename": self.filename,
             "mode": self.mode,
+            "format": self.format,
             "chapters": [chapter.to_dict() for chapter in self.chapters],
             "volumes": [volume.to_dict() for volume in self.volumes],
             "chapter_count": self.chapter_count,
@@ -116,10 +119,17 @@ def ensure_chapter_exports_dir() -> Path:
     return settings.chapter_exports_dir
 
 
-def export_file_paths(job_id: str) -> tuple[Path, Path]:
-    """返回任务的临时文件与成品文件路径。"""
+def export_file_paths(job_id: str, format: str = "single") -> tuple[Path, Path]:
+    """返回任务的临时与成品路径。
+
+    single：临时 `.part` 文件，成品 `.txt` 文件。
+    per_chapter：成品为「卷/章.txt」结构的目录，无独立临时目录（失败时整目录删除）。
+    """
     directory = ensure_chapter_exports_dir()
     basename = f"{EXPORT_FILE_PREFIX}{job_id}"
+    if format == "per_chapter":
+        output_dir = directory / basename
+        return output_dir, output_dir
     return directory / f"{basename}.part", directory / f"{basename}.txt"
 
 
@@ -183,6 +193,7 @@ async def create_export_plan(
     included_chapter_ids: Iterable[str],
     excluded_chapter_ids: Iterable[str],
     local_date: str,
+    format: str = "single",
 ) -> ChapterExportPlan:
     """校验选择并固定导出范围、顺序和文件名。"""
     project = await project_repo.get_by_id(session, project_id)
@@ -249,10 +260,44 @@ async def create_export_plan(
     else:
         filename_label = f"{len(selected_chapters)}个章节"
 
+    if format == "per_chapter":
+        # 每章一个文件的目录结构需要按卷组织：列出所有被选章节涉及的卷。
+        involved_volumes = [
+            volume
+            for volume in volumes
+            if any(chapter_id in selected_ids for chapter_id, _title, _word_count in chapters_by_volume[volume.id])
+        ]
+        export_volumes = [
+            ExportVolume(
+                id=volume.id,
+                title=volume.title or "未命名卷",
+                order=volume.order,
+                chapter_ids=[
+                    chapter_id
+                    for chapter_id, _title, _word_count in chapters_by_volume[volume.id]
+                    if chapter_id in selected_ids
+                ],
+            )
+            for volume in involved_volumes
+        ]
+    elif mode == "volumes":
+        export_volumes = [
+            ExportVolume(
+                id=volume.id,
+                title=volume.title or "未命名卷",
+                order=volume.order,
+                chapter_ids=[chapter_id for chapter_id, _title, _word_count in chapters_by_volume[volume.id]],
+            )
+            for volume in complete_volumes
+        ]
+    else:
+        export_volumes = []
+
     return ChapterExportPlan(
         project_id=project_id,
-        filename=f"{project_title}-{filename_label}-{local_date}.txt",
+        filename=f"{project_title}-{filename_label}-{local_date}{'' if format == 'per_chapter' else '.txt'}",
         mode=mode,
+        format=format,
         chapters=[
             ExportChapter(
                 id=chapter_id,
@@ -262,17 +307,7 @@ async def create_export_plan(
             )
             for chapter_id, volume_id, title, word_count in selected_chapters
         ],
-        volumes=[
-            ExportVolume(
-                id=volume.id,
-                title=volume.title or "未命名卷",
-                order=volume.order,
-                chapter_ids=[chapter_id for chapter_id, _title, _word_count in chapters_by_volume[volume.id]],
-            )
-            for volume in complete_volumes
-        ]
-        if mode == "volumes"
-        else [],
+        volumes=export_volumes,
     )
 
 
@@ -293,6 +328,7 @@ def get_export_summary(job: BackgroundJob) -> dict[str, object]:
         "status": job.status,
         "filename": payload.get("filename", "导出章节.txt"),
         "mode": payload.get("mode", "chapters"),
+        "format": payload.get("format", "single"),
         "volume_count": int(payload.get("volume_count", 0)),
         "chapter_count": int(payload.get("chapter_count", len(chapter_ids))),
         "word_count": int(payload.get("word_count", 0)),
@@ -304,19 +340,51 @@ def get_export_summary(job: BackgroundJob) -> dict[str, object]:
         if isinstance(progress.get("chapter_title"), str)
         else None,
         "expires_at": expires_at,
+        "export_dir": result.get("export_dir")
+        if isinstance(result.get("export_dir"), str)
+        else None,
         "error_message": error.get("message") if isinstance(error.get("message"), str) else None,
     }
 
 
 async def write_chapter_export(context) -> dict[str, object]:
-    """分批读取章节正文并写入任务专属 TXT 文件。"""
+    """分批读取章节正文并写入导出成品（single 合并一个 TXT / per_chapter 每章一个 TXT）。"""
     payload = background_service.parse_json_object(context.job.payload_json)
     chapters = [item for item in payload.get("chapters", []) if isinstance(item, dict)]
-    volumes = [item for item in payload.get("volumes", []) if isinstance(item, dict)]
     if not chapters:
         raise ChapterExportSelectionError("导出任务没有可处理的章节")
 
-    part_path, output_path = export_file_paths(context.job_id)
+    export_format = payload.get("format", "single")
+    volumes = [item for item in payload.get("volumes", []) if isinstance(item, dict)]
+    if export_format == "per_chapter":
+        return await _write_per_chapter_export(context, chapters, volumes, payload)
+
+    return await _write_single_export(context, chapters, volumes, payload)
+
+
+def _export_result_payload(
+    payload: dict[str, object],
+    chapter_count: int,
+    export_dir: str | None = None,
+) -> dict[str, object]:
+    """组装导出成品元数据，供任务结果与下载判断使用。"""
+    expires_at = datetime.now(UTC) + EXPORT_FILE_TTL
+    result = {
+        "filename": payload.get("filename", "导出章节.txt"),
+        "format": payload.get("format", "single"),
+        "volume_count": payload.get("volume_count", 0),
+        "chapter_count": chapter_count,
+        "word_count": payload.get("word_count", 0),
+        "expires_at": expires_at.isoformat(),
+    }
+    if export_dir:
+        result["export_dir"] = export_dir
+    return result
+
+
+async def _write_single_export(context, chapters, volumes, payload) -> dict[str, object]:
+    """将多章合并写入单个 TXT 文件（原有行为）。"""
+    part_path, output_path = export_file_paths(context.job_id, "single")
     groups = {
         chapter_id: volume
         for volume in volumes
@@ -386,14 +454,85 @@ async def write_chapter_export(context) -> dict[str, object]:
 
         await context.check_cancelled()
         await asyncio.to_thread(os.replace, part_path, output_path)
-        expires_at = datetime.now(UTC) + EXPORT_FILE_TTL
-        return {
-            "filename": payload.get("filename", "导出章节.txt"),
-            "volume_count": payload.get("volume_count", 0),
-            "chapter_count": len(chapters),
-            "word_count": payload.get("word_count", 0),
-            "expires_at": expires_at.isoformat(),
-        }
+        return _export_result_payload(payload, len(chapters))
+    except BaseException:
+        await _delete_export_files(context.job_id)
+        raise
+
+
+async def _write_per_chapter_export(context, chapters, volumes, payload) -> dict[str, object]:
+    """每章写入独立 TXT，按「卷目录/章标题.txt」组织为文件夹结构。"""
+    output_dir, _ = export_file_paths(context.job_id, "per_chapter")
+    await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
+
+    volume_info: dict[str, tuple[object, object]] = {
+        volume["id"]: (volume.get("order"), volume.get("title"))
+        for volume in volumes
+        if isinstance(volume, dict) and isinstance(volume.get("id"), str)
+    }
+    written_count = 0
+    current_volume_id: str | None = None
+    volume_chapter_index = 0
+
+    def _volume_dir(volume_id: str) -> Path:
+        order, volume_title = volume_info.get(volume_id, (None, None))
+        if isinstance(order, int) and isinstance(volume_title, str) and volume_title:
+            dir_name = sanitize_filename_segment(
+                f"第{chinese_number(order)}卷 {volume_title}", "未命名卷"
+            )
+        else:
+            dir_name = "未命名卷"
+        return output_dir / dir_name
+
+    try:
+        for offset in range(0, len(chapters), EXPORT_BATCH_SIZE):
+            await context.check_cancelled()
+            batch = chapters[offset : offset + EXPORT_BATCH_SIZE]
+            ids = [item.get("id") for item in batch if isinstance(item.get("id"), str)]
+            loaded = await chapter_repo.get_by_ids(context.session, ids)
+            loaded_by_id = {chapter.id: chapter for chapter in loaded}
+            if len(loaded_by_id) != len(ids):
+                raise RuntimeError("导出章节已被删除，请重新发起导出")
+
+            for item in batch:
+                chapter_id = item.get("id")
+                volume_id = item.get("volume_id")
+                if not isinstance(chapter_id, str):
+                    raise RuntimeError("导出任务章节数据无效")
+                chapter = loaded_by_id[chapter_id]
+                title = item.get("title") if isinstance(item.get("title"), str) else chapter.title
+                if volume_id != current_volume_id:
+                    current_volume_id = volume_id
+                    volume_chapter_index = 0
+                volume_dir = _volume_dir(volume_id if isinstance(volume_id, str) else "")
+                await asyncio.to_thread(volume_dir.mkdir, parents=True, exist_ok=True)
+                volume_chapter_index += 1
+                safe_title = sanitize_filename_segment(title or "未命名章节", "未命名章节")
+                filename = f"{volume_chapter_index:03d}_{safe_title}.txt"
+                content = chapter.content.replace("\r\n", "\n").replace("\r", "\n")
+                async with aiofiles.open(
+                    volume_dir / filename, "w", encoding="utf-8-sig", newline="\n"
+                ) as output:
+                    await output.write(f"{title}\n{content}")
+                written_count += 1
+
+            last_title = batch[-1].get("title")
+            context.job = await background_service.update_progress(
+                context.session,
+                context.publisher,
+                context.job,
+                current=written_count,
+                total=len(chapters),
+                message="writing",
+                extra_payload={
+                    "stage": "writing",
+                    "chapter_title": last_title if isinstance(last_title, str) else None,
+                },
+            )
+            await context.commit()
+
+        await context.check_cancelled()
+        return _export_result_payload(payload, len(chapters), export_dir=str(output_dir))
     except BaseException:
         await _delete_export_files(context.job_id)
         raise
@@ -412,20 +551,26 @@ async def cleanup_chapter_export_files(session: AsyncSession) -> int:
         job = await background_service.get_job(session, job_id)
         should_keep = False
         if job is not None and job.type == EXPORT_JOB_TYPE:
-            if path.suffix in {".part", ".txt"}:
-                should_keep = job.status in {
-                    JOB_STATUS_PENDING,
-                    JOB_STATUS_RUNNING,
-                    JOB_STATUS_CANCEL_REQUESTED,
-                }
-            elif path.suffix == ".txt" and job.status == JOB_STATUS_SUCCEEDED:
-                expires_at = _parse_datetime(
-                    background_service.parse_json_object(job.result_json).get("expires_at")
-                )
-                should_keep = expires_at is not None and expires_at > now
+            is_active = job.status in {
+                JOB_STATUS_PENDING,
+                JOB_STATUS_RUNNING,
+                JOB_STATUS_CANCEL_REQUESTED,
+            }
+            if path.suffix == ".part":
+                should_keep = is_active
+            elif path.suffix == ".txt" or path.is_dir():
+                should_keep = is_active
+                if not should_keep and job.status == JOB_STATUS_SUCCEEDED:
+                    expires_at = _parse_datetime(
+                        background_service.parse_json_object(job.result_json).get("expires_at")
+                    )
+                    should_keep = expires_at is not None and expires_at > now
         if should_keep:
             continue
-        await asyncio.to_thread(path.unlink, missing_ok=True)
+        if path.is_dir():
+            await asyncio.to_thread(shutil.rmtree, path, True)
+        else:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
         removed += 1
     return removed
 
@@ -434,17 +579,34 @@ def is_export_download_available(job: BackgroundJob) -> bool:
     """检查任务成品是否在下载有效期内。"""
     if job.type != EXPORT_JOB_TYPE or job.status != JOB_STATUS_SUCCEEDED:
         return False
-    expires_at = _parse_datetime(background_service.parse_json_object(job.result_json).get("expires_at"))
+    result = background_service.parse_json_object(job.result_json)
+    expires_at = _parse_datetime(result.get("expires_at"))
     if expires_at is None or expires_at <= datetime.now(UTC):
         return False
-    _part_path, output_path = export_file_paths(job.id)
+    export_format = result.get("format", "single")
+    _tmp_path, output_path = export_file_paths(job.id, export_format)
+    if export_format == "per_chapter":
+        return output_path.is_dir()
     return output_path.is_file()
 
 
 async def _delete_export_files(job_id: str) -> None:
-    part_path, output_path = export_file_paths(job_id)
-    await asyncio.to_thread(part_path.unlink, missing_ok=True)
-    await asyncio.to_thread(output_path.unlink, missing_ok=True)
+    """删除任务的临时与成品文件（兼容 single 的 .part/.txt 与 per_chapter 的 .work/.zip）。"""
+    for path in _all_export_paths(job_id):
+        if path.is_dir():
+            await asyncio.to_thread(shutil.rmtree, path, True)
+        else:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
+
+
+def _all_export_paths(job_id: str) -> list[Path]:
+    directory = ensure_chapter_exports_dir()
+    basename = f"{EXPORT_FILE_PREFIX}{job_id}"
+    return [
+        directory / f"{basename}.part",
+        directory / f"{basename}.txt",
+        directory / basename,  # per_chapter 成品目录（卷/章.txt 结构）
+    ]
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -458,7 +620,10 @@ def _parse_datetime(value: object) -> datetime | None:
 
 
 def _job_id_from_export_path(path: Path) -> str | None:
-    if path.suffix not in {".part", ".txt"} or not path.name.startswith(EXPORT_FILE_PREFIX):
+    if not path.name.startswith(EXPORT_FILE_PREFIX):
         return None
-    job_id = path.name[len(EXPORT_FILE_PREFIX) : -len(path.suffix)]
-    return job_id or None
+    if path.is_dir():
+        return path.name[len(EXPORT_FILE_PREFIX) :] or None
+    if path.suffix not in {".part", ".txt"}:
+        return None
+    return path.name[len(EXPORT_FILE_PREFIX) : -len(path.suffix)] or None

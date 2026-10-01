@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """章节导出 API 测试。"""
 
+from pathlib import Path
+
 import pytest
 from httpx import AsyncClient
 from urllib.parse import unquote
@@ -270,10 +272,12 @@ async def test_export_task_writes_full_volume_txt_and_serves_download(
     )
     assert result == {
         "filename": "测试小说-全本-2026-07-28.txt",
+        "format": "single",
         "volume_count": 1,
         "chapter_count": 2,
         "word_count": 10,
         "expires_at": result["expires_at"],
+        "export_dir": None,
     }
     assert [first["id"], second["id"]] == created.json()["chapter_ids"]
 
@@ -332,3 +336,71 @@ async def test_cleanup_keeps_output_while_export_is_still_running(
 
     assert await chapter_export_service.cleanup_chapter_export_files(session) == 0
     assert output_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_per_chapter_export_writes_volume_folder_structure(
+    client: AsyncClient,
+    session,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    async def skip_cancellation_check(_context: JobContext) -> None:
+        return None
+
+    monkeypatch.setattr(chapter_export_service.settings, "chapter_exports_dir", tmp_path)
+    monkeypatch.setattr(JobContext, "check_cancelled", skip_cancellation_check)
+    project_id, volume_id = await _create_project(client)
+    await _create_chapter(client, project_id, volume_id, "第一章", "第一章正文", 5)
+    await _create_chapter(client, project_id, volume_id, "第二章", "第二章正文", 5)
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/chapter-exports",
+        json={
+            "selected_volume_ids": [volume_id],
+            "included_chapter_ids": [],
+            "excluded_chapter_ids": [],
+            "local_date": "2026-07-28",
+            "format": "per_chapter",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["format"] == "per_chapter"
+    # 文件夹结构没有文件后缀
+    assert created.json()["filename"] == "测试小说-全本-2026-07-28"
+
+    job = await background_service.get_job(session, created.json()["id"])
+    assert job is not None
+    job.status = "running"
+    await session.commit()
+
+    context = JobContext(session=session, job=job, publisher=BackgroundEventPublisher(None))
+    result = await dispatch_job(context)
+    await background_service.mark_succeeded(session, context.publisher, context.job, result=result)
+    await session.commit()
+
+    assert result["format"] == "per_chapter"
+    export_dir = Path(result["export_dir"])
+    assert export_dir.is_dir()
+
+    # 文件夹结构：一个卷子目录 → 两章 txt
+    subdirs = [path for path in export_dir.iterdir() if path.is_dir()]
+    assert len(subdirs) == 1
+    volume_dir = subdirs[0]
+    txt_files = sorted(path.name for path in volume_dir.iterdir() if path.is_file())
+    assert len(txt_files) == 2
+    assert "第一章" in txt_files[0]
+    assert "第二章" in txt_files[1]
+
+    joined = "".join(
+        (volume_dir / name).read_text(encoding="utf-8-sig") for name in txt_files
+    )
+    assert "第一章正文" in joined
+    assert "第二章正文" in joined
+
+    # per_chapter 不提供文件下载 URL，而是通过 export_dir 打开文件夹
+    status_response = await client.get(
+        f"/api/v1/projects/{project_id}/chapter-exports/{job.id}"
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["download_url"] is None
+    assert status_response.json()["export_dir"] == str(export_dir)
